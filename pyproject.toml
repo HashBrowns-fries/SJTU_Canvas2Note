@@ -1,0 +1,36 @@
+[project]
+name = "canvas2note"
+version = "0.1.0"
+description = "Canvas lecture notes generator: download → transcribe → parse → LLM notes"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "fastapi>=0.136.0",
+    "modelscope>=1.36.0",
+    "openai>=2.32.0",
+    "pypdf>=6.10.2",
+    "python-docx>=1.2.0",
+    "python-multipart>=0.0.26",
+    "python-pptx>=1.0.2",
+    "python-dotenv>=1.0.0",
+    "requests>=2.33.1",
+    "torch>=2.3.0",
+    "tqdm>=4.67.3",
+    "transformers==4.57.6",
+    "faster-whisper",
+    "uvicorn>=0.44.0",
+]
+
+[project.scripts]
+canvas2note = "pipeline:main"
+server      = "server:run"
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu121" },
+]

@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:        #fafaf8;
+  --surface:   #ffffff;
+  --surface2:  #f3f2ee;
+  --surface3:  #eceae4;
+  --border:    #ddd9d0;
+  --border2:   #c8c4ba;
+  --amber:     #b07c1a;
+  --amber-bg:  rgba(176,124,26,0.08);
+  --sage:      #3a7a50;
+  --sage-bg:   rgba(58,122,80,0.08);
+  --rust:      #b04030;
+  --text:      #1c1a16;
+  --text-mid:  #4a4840;
+  --text-muted:#8a8880;
+  --paper:     #fffdf5;
+  --ink:       #1c1a16;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow: hidden;
+  height: 100vh;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border2); }
+
+/* Markdown in notes */
+.prose-notes {
+  font-family: 'Lora', Georgia, serif;
+  font-size: 15px;
+  line-height: 1.85;
+  color: var(--ink);
+}
+.prose-notes h1 { font-size: 1.65rem; font-weight: 700; margin: 0 0 1.2rem; border-bottom: 2px solid rgba(176,124,26,0.25); padding-bottom: 0.5rem; color: var(--ink); }
+.prose-notes h2 { font-size: 1.2rem; font-weight: 600; margin: 1.6rem 0 0.6rem; color: var(--ink); }
+.prose-notes h3 { font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.4rem; color: var(--text-mid); }
+.prose-notes p  { margin-bottom: 0.9rem; }
+.prose-notes ul, .prose-notes ol { padding-left: 1.5rem; margin-bottom: 0.9rem; }
+.prose-notes li { margin-bottom: 0.35rem; }
+.prose-notes code { font-family: 'Courier Prime', monospace; font-size: 0.88em; background: var(--surface3); padding: 0.1em 0.4em; border-radius: 3px; border: 1px solid var(--border); }
+.prose-notes pre  { background: #1e1c18; color: #e8e4d8; padding: 1rem; border-radius: 8px; overflow-x: auto; margin-bottom: 1rem; }
+.prose-notes pre code { background: none; padding: 0; color: inherit; border: none; }
+.prose-notes blockquote { border-left: 3px solid var(--amber); padding-left: 1rem; color: var(--text-mid); margin: 1rem 0; font-style: italic; background: var(--amber-bg); padding: 0.5rem 1rem; border-radius: 0 6px 6px 0; }
+.prose-notes strong { font-weight: 700; color: var(--ink); }
+.prose-notes table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; font-size: 0.9em; }
+.prose-notes th { background: var(--surface3); padding: 0.5rem 0.9rem; text-align: left; font-weight: 700; border-bottom: 2px solid var(--border); }
+.prose-notes td { padding: 0.45rem 0.9rem; border-bottom: 1px solid var(--border); }
+.prose-notes tr:last-child td { border-bottom: none; }
+
+/* Chat bubble */
+.chat-user   { background: #eef5ee; border: 1px solid #c0d8c2; }
+.chat-assist { background: #fdf5ec; border: 1px solid #e0d0b0; }
+
+/* Form fields */
+.field-input {
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 13px;
+  font-family: 'Courier Prime', monospace;
+  font-size: 13px;
+  color: var(--text);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+.field-input:focus { border-color: rgba(176,124,26,0.5); box-shadow: 0 0 0 3px rgba(176,124,26,0.1); }
+.field-input::placeholder { color: var(--text-muted); }
+
+.field-hint {
+  margin-top: 4px;
+  font-family: 'Courier Prime', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.field-hint code {
+  background: rgba(176,124,26,0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--amber);
+}
+
+/* Paper texture for notes */
+.paper-bg {
+  background-color: var(--paper);
+  background-image:
+    radial-gradient(circle at 25% 25%, rgba(176,124,26,0.03) 0%, transparent 50%),
+    radial-gradient(circle at 75% 75%, rgba(58,122,80,0.03) 0%, transparent 50%);
+}
+
+/* Tab indicator line */
+.tab-active { border-bottom: 2px solid var(--amber); color: var(--amber); background: rgba(176,124,26,0.06); }
+.tab-inactive { border-bottom: 2px solid transparent; color: var(--text-muted); }
+.tab-inactive:hover { border-bottom-color: var(--border2); color: var(--text-mid); }
