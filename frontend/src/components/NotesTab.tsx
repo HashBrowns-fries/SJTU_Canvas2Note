@@ -31,7 +31,12 @@ export function NotesTab({ course }: Props) {
   useEffect(() => { loadNotes() }, [course.id])
 
   function loadNotes() {
-    api.notes().then(all => setNotes(all)).catch(() => {})
+    // 统一归一化：中文保留，英文/数字/符号做 _safe_name 转换
+    const norm = (s: string) =>
+      s.replace(/[^a-zA-Z0-9\u4e00-\u9fff ]/g, "_").replace(/\s+/g, "_").trim()
+    api.notes().then(all => setNotes(
+      all.filter((n: Note) => norm(n.course) === norm(course.name))
+    )).catch(() => {})
   }
 
   async function openNote(n: Note) {

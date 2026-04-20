@@ -1,3 +1,6 @@
+"""
+语音转写：支持本地 faster-whisper 和 OpenAI 兼容 ASR API
+"""
 import os
 import subprocess
 from pathlib import Path
@@ -38,11 +41,24 @@ def _load_model():
     return _model
 
 
-def transcribe(audio_path: Path) -> str:
-    print(f"[ASR] 转录: {audio_path.name}")
+def transcribe(audio_path: str | os.PathLike, course_name: str = "") -> str:
+    """
+    转写音频文件。
+    - ASR_DEVICE=cuda/cpu  → 本地 faster-whisper
+    - ASR_DEVICE=api         → OpenAI 兼容 ASR API（需配合 settings 中的 asr_api_* 配置）
+    """
+    if ASR_DEVICE == "api":
+        return _transcribe_api(audio_path, course_name)
+    return _transcribe_local(audio_path, course_name)
+
+
+def _transcribe_local(audio_path: str | os.PathLike, course_name: str = "") -> str:
+    audio_path = os.fspath(audio_path)
+    ap = Path(audio_path)
+    print(f"[ASR] 转录: {ap.name}")
     model = _load_model()
     segments, _ = model.transcribe(
-        str(audio_path),
+        audio_path,
         language="zh",
         beam_size=5,
     )
@@ -51,9 +67,50 @@ def transcribe(audio_path: Path) -> str:
     return text
 
 
+def _load_settings() -> dict:
+    settings_file = Path(__file__).parent.parent / "settings.json"
+    if settings_file.exists():
+        import json
+        return {
+            "asr_api_base":  "",
+            "asr_api_key":   "",
+            "asr_api_model": "whisper-1",
+            **json.loads(settings_file.read_text()),
+        }
+    return {"asr_api_base": "", "asr_api_key": "", "asr_api_model": "whisper-1"}
+
+
+def _transcribe_api(audio_path: str | os.PathLike, course_name: str = "") -> str:
+    """通过 OpenAI 兼容 ASR API 转写。"""
+    cfg = _load_settings()
+    ap = Path(audio_path)
+    print(f"[ASR API] 转录: {ap.name}")
+
+    base_url = cfg.get("asr_api_base", "")
+    api_key  = cfg.get("asr_api_key", "")
+    api_model = cfg.get("asr_api_model", "whisper-1")
+
+    if not base_url or not api_key:
+        raise RuntimeError(
+            "ASR 已切换为 API 模式，请在设置中配置 ASR API（Base URL + API Key）。"
+        )
+
+    from openai import OpenAI
+    client = OpenAI(base_url=base_url, api_key=api_key)
+    with open(audio_path, "rb") as f:
+        resp = client.audio.transcriptions.create(
+            model=api_model,
+            file=f,
+            language="zh",
+        )
+    text = resp.text.strip()
+    print(f"[ASR API] 完成，字符数: {len(text)}")
+    return text
+
+
 def transcribe_video(video_path: Path, course_name: str = "") -> str:
     audio_path = extract_audio(video_path, course_name)
-    return transcribe(audio_path)
+    return transcribe(audio_path, course_name)
 
 
 def extract_audio(video_path: Path, course_name: str = "") -> Path:

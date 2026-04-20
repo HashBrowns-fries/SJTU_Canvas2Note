@@ -35,6 +35,9 @@ DEFAULTS = {
     "llm_model":       DEFAULT_LLM_MODEL,
     "asr_model":       "base",
     "asr_device":      "cuda",
+    "asr_api_base":    "",
+    "asr_api_key":     "",
+    "asr_api_model":   "whisper-1",
 }
 
 def _load_settings() -> dict:
@@ -770,6 +773,9 @@ class SettingsBody(BaseModel):
     llm_model:       str | None = None
     asr_model:       str | None = None
     asr_device:      str | None = None
+    asr_api_base:    str | None = None
+    asr_api_key:     str | None = None
+    asr_api_model:   str | None = None
 
 
 @app.get("/api/settings")
@@ -810,6 +816,26 @@ def test_llm(body: LLMTestBody):
         raise HTTPException(500, str(e))
 
 
+class ASRTestBody(BaseModel):
+    base_url: str
+    api_key: str
+    model: str
+
+
+@app.post("/api/settings/test_asr")
+def test_asr(body: ASRTestBody):
+    """测试 ASR API 连通性（不实际转写，只测连接）"""
+    try:
+        from openai import OpenAI
+        client = OpenAI(base_url=body.base_url, api_key=body.api_key, timeout=15)
+        # Whisper API 只接受音频文件，发送一个 minimal WAV header 来探测连通性
+        # （无法真正测转写，只能测鉴权）
+        client.models.list()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Client re-init helpers
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -826,6 +852,14 @@ def _reset_clients():
     _asr_model = None
     _video_client = None
     _saved_ja_auth_cookie = ""
+
+    # Reload config so ASR picks up new device/model/api settings
+    from importlib import reload
+    import config as _config_mod
+    reload(_config_mod)
+    # Reset the cached model so it reloads with new settings
+    import asr.transcriber as _asr_mod
+    _asr_mod._model = None
 
 
 def canvas() -> CanvasClient:

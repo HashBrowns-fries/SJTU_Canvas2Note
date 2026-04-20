@@ -3,30 +3,39 @@ import { useEffect, useRef, useState } from 'react'
 interface Settings {
   canvas_base_url: string
   canvas_token:    string
-  ja_auth_cookie:     string
+  ja_auth_cookie:  string
   llm_base_url:    string
   llm_api_key:     string
   llm_model:       string
   asr_model:       string
-  asr_device:      string
+  asr_device:      string   // "cuda" | "cpu" | "api"
+  asr_api_base:    string
+  asr_api_key:     string
+  asr_api_model:   string
 }
 
 interface Props { onClose: () => void }
 
 const LLM_PRESETS = [
   { label: 'Ollama (localhost)', base_url: 'http://localhost:11434/v1', api_key: 'ollama' },
-  { label: 'OpenAI',            base_url: 'https://api.openai.com/v1',  api_key: '' },
-  { label: 'DeepSeek',          base_url: 'https://api.deepseek.com/v1', api_key: '' },
-  { label: 'SiliconFlow',       base_url: 'https://api.siliconflow.cn/v1', api_key: '' },
+  { label: 'OpenAI',             base_url: 'https://api.openai.com/v1',  api_key: '' },
+  { label: 'DeepSeek',           base_url: 'https://api.deepseek.com/v1', api_key: '' },
+  { label: 'SiliconFlow',        base_url: 'https://api.siliconflow.cn/v1', api_key: '' },
   { label: 'MiniMax (Anthropic)', base_url: 'https://api.minimaxi.com/anthropic', api_key: '' },
-  { label: 'Custom',           base_url: '', api_key: '' },
+  { label: 'Custom',             base_url: '', api_key: '' },
 ]
 
-const ASR_PRESETS = [
-  { label: 'base    (74M)',    value: 'base' },
-  { label: 'small   (244M)',  value: 'small' },
-  { label: 'medium  (769M)',  value: 'medium' },
-  { label: 'large-v3 (1.5B)',  value: 'large-v3' },
+const ASR_LOCAL_PRESETS = [
+  { label: 'base    (74M)',   value: 'base' },
+  { label: 'small   (244M)', value: 'small' },
+  { label: 'medium  (769M)', value: 'medium' },
+  { label: 'large-v3 (1.5B)', value: 'large-v3' },
+]
+
+const ASR_API_PRESETS = [
+  { label: 'OpenAI Whisper',    value: 'whisper-1' },
+  { label: 'SiliconFlow TTS',  value: 'paraformer-zh' },
+  { label: 'Custom',           value: '' },
 ]
 
 type VideoLoginStatus = 'idle' | 'logging_in' | 'done' | 'error'
@@ -40,7 +49,10 @@ export function SettingsModal({ onClose }: Props) {
     llm_api_key:    'ollama',
     llm_model:      'qwen3:8b',
     asr_model:      'base',
-    asr_device:    'cuda',
+    asr_device:     'cuda',
+    asr_api_base:   '',
+    asr_api_key:    '',
+    asr_api_model:  'whisper-1',
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -49,6 +61,7 @@ export function SettingsModal({ onClose }: Props) {
   const [showKey, setShowKey] = useState(false)
   const [showJaPwd, setShowJaPwd] = useState(false)
   const [videoLoginStatus, setVideoLoginStatus] = useState<VideoLoginStatus>('idle')
+  const [asrApiTestMsg, setAsrApiTestMsg] = useState('')
   const overlayRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -71,25 +84,17 @@ export function SettingsModal({ onClose }: Props) {
   async function loginVideo() {
     setVideoLoginStatus('logging_in')
     try {
-      // Save settings first, then login (login reads from settings.json)
       await fetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
       })
       await fetch('/api/video/login', { method: 'POST' })
-      // Poll task status
       const poll = setInterval(async () => {
         const t = await fetch('/api/tasks/video_login').then(r => r.json()).catch(() => null)
         if (!t) return
-        if (t.status === 'done') {
-          clearInterval(poll)
-          setVideoLoginStatus('done')
-        }
-        if (t.status === 'error') {
-          clearInterval(poll)
-          setVideoLoginStatus('error')
-        }
+        if (t.status === 'done') { clearInterval(poll); setVideoLoginStatus('done') }
+        if (t.status === 'error') { clearInterval(poll); setVideoLoginStatus('error') }
       }, 1500)
     } catch {
       setVideoLoginStatus('error')
@@ -121,6 +126,8 @@ export function SettingsModal({ onClose }: Props) {
   function overlayClick(e: React.MouseEvent) {
     if (e.target === overlayRef.current) onClose()
   }
+
+  const isApiMode = settings.asr_device === 'api'
 
   return (
     <div
@@ -158,6 +165,7 @@ export function SettingsModal({ onClose }: Props) {
           </div>
         ) : (
           <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+
             {/* ── Canvas ── */}
             <section>
               <h3 className="font-mono text-xs text-amber/80 tracking-wider mb-3 uppercase">
@@ -253,7 +261,6 @@ export function SettingsModal({ onClose }: Props) {
                 LLM
               </h3>
 
-              {/* Presets */}
               <div className="flex flex-wrap gap-1.5 mb-4">
                 {LLM_PRESETS.map(p => (
                   <button
@@ -342,50 +349,170 @@ export function SettingsModal({ onClose }: Props) {
               <h3 className="font-mono text-xs text-amber/80 tracking-wider mb-3 uppercase">
                 ASR
               </h3>
-              <div className="space-y-3">
-                <Field label="Model">
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {ASR_PRESETS.map(p => (
+
+              {/* 模式切换 */}
+              <Field label="模式">
+                <div className="flex gap-2 mb-3">
+                  {[
+                    { value: 'cuda', label: '⚡ 本地 GPU' },
+                    { value: 'cpu',  label: '💻 本地 CPU' },
+                    { value: 'api',  label: '☁️ API' },
+                  ].map(m => (
+                    <button
+                      key={m.value}
+                      onClick={() => set('asr_device', m.value)}
+                      className="font-mono text-xs px-4 py-2 rounded border transition-all flex-1"
+                      style={{
+                        background:  settings.asr_device === m.value ? 'rgba(122,171,138,0.15)' : 'transparent',
+                        borderColor: settings.asr_device === m.value ? 'rgba(122,171,138,0.5)' : 'var(--border)',
+                        color:        settings.asr_device === m.value ? 'var(--sage)' : 'var(--text-muted)',
+                      }}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+
+              {isApiMode ? (
+                /* ── API 模式配置 ── */
+                <div className="space-y-3">
+                  <Field label="API Base URL">
+                    <input
+                      value={settings.asr_api_base}
+                      onChange={e => set('asr_api_base', e.target.value)}
+                      className="field-input"
+                      placeholder="https://api.openai.com/v1"
+                    />
+                    <p className="field-hint">
+                      支持 OpenAI 兼容的 Whisper API（如 OpenAI、SiliconFlow、火山引擎等）
+                    </p>
+                  </Field>
+                  <Field label="API Key">
+                    <div className="relative">
+                      <input
+                        type={showKey ? 'text' : 'password'}
+                        value={settings.asr_api_key}
+                        onChange={e => set('asr_api_key', e.target.value)}
+                        className="field-input pr-10"
+                        placeholder="sk-..."
+                      />
                       <button
-                        key={p.value}
-                        onClick={() => set('asr_model', p.value)}
-                        className="font-mono text-xs px-3 py-1.5 rounded border transition-all"
-                        style={{
-                          background:  settings.asr_model === p.value ? 'rgba(122,171,138,0.15)' : 'transparent',
-                          borderColor: settings.asr_model === p.value ? 'rgba(122,171,138,0.5)' : 'var(--border)',
-                          color:        settings.asr_model === p.value ? 'var(--sage)' : 'var(--text-muted)',
-                        }}
+                        onClick={() => setShowKey(v => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 font-mono text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
                       >
-                        {p.label}
+                        {showKey ? 'hide' : 'show'}
                       </button>
-                    ))}
-                  </div>
-                  <p className="field-hint">
-                    Whisper 模型精度从低到高：base → small → medium → large-v3<br/>
-                    显存需求：base≈1.5GB · small≈2.5GB · medium≈3.5GB · large-v3≈5.5GB
-                  </p>
-                </Field>
-                <Field label="Device">
-                  <div className="flex gap-2">
-                    {['cuda', 'cpu'].map(d => (
-                      <button
-                        key={d}
-                        onClick={() => set('asr_device', d)}
-                        className="font-mono text-xs px-4 py-2 rounded border transition-all"
-                        style={{
-                          background:  settings.asr_device === d ? 'rgba(122,171,138,0.15)' : 'transparent',
-                          borderColor: settings.asr_device === d ? 'rgba(122,171,138,0.5)' : 'var(--border)',
-                          color:        settings.asr_device === d ? 'var(--sage)' : 'var(--text-muted)',
-                        }}
-                      >
-                        {d.toUpperCase()}
-                        {d === 'cuda' ? ' ★' : ''}
-                      </button>
-                    ))}
-                  </div>
-                </Field>
-              </div>
+                    </div>
+                  </Field>
+                  <Field label="Model">
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {ASR_API_PRESETS.map(p => (
+                        <button
+                          key={p.label}
+                          onClick={() => p.value && set('asr_api_model', p.value)}
+                          className="font-mono text-xs px-3 py-1.5 rounded border transition-all"
+                          style={{
+                            background:  settings.asr_api_model === p.value ? 'rgba(122,171,138,0.15)' : 'transparent',
+                            borderColor: settings.asr_api_model === p.value ? 'rgba(122,171,138,0.5)' : 'var(--border)',
+                            color:        settings.asr_api_model === p.value ? 'var(--sage)' : 'var(--text-muted)',
+                            cursor: p.value === '' ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      value={settings.asr_api_model}
+                      onChange={e => set('asr_api_model', e.target.value)}
+                      className="field-input"
+                      placeholder="whisper-1"
+                    />
+                  </Field>
+                  <button
+                    onClick={async () => {
+                      setAsrApiTestMsg('')
+                      try {
+                        const r = await fetch('/api/settings/test_asr', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            base_url: settings.asr_api_base,
+                            api_key: settings.asr_api_key,
+                            model: settings.asr_api_model,
+                          }),
+                        })
+                        const data = await r.json()
+                        setAsrApiTestMsg(r.ok ? '✓ 连接成功' : `✕ ${data.detail ?? 'failed'}`)
+                      } catch (e: unknown) {
+                        setAsrApiTestMsg(`✕ ${e instanceof Error ? e.message : String(e)}`)
+                      }
+                    }}
+                    className="font-mono text-xs px-3 py-1.5 rounded border border-sage/30 text-sage hover:bg-sage/10 transition-all"
+                    disabled={!settings.asr_api_base || !settings.asr_api_key}
+                  >
+                    ◎ 测试连接
+                  </button>
+                  {asrApiTestMsg && (
+                    <p className={`font-mono text-xs ${asrApiTestMsg.startsWith('✓') ? 'text-sage' : 'text-rust'}`}>
+                      {asrApiTestMsg}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                /* ── 本地模式配置 ── */
+                <div className="space-y-3">
+                  <Field label="Model">
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {ASR_LOCAL_PRESETS.map(p => (
+                        <button
+                          key={p.value}
+                          onClick={() => set('asr_model', p.value)}
+                          className="font-mono text-xs px-3 py-1.5 rounded border transition-all"
+                          style={{
+                            background:  settings.asr_model === p.value ? 'rgba(122,171,138,0.15)' : 'transparent',
+                            borderColor: settings.asr_model === p.value ? 'rgba(122,171,138,0.5)' : 'var(--border)',
+                            color:        settings.asr_model === p.value ? 'var(--sage)' : 'var(--text-muted)',
+                          }}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="field-hint">
+                      Whisper 模型精度：base → small → medium → large-v3<br/>
+                      显存需求：base≈1.5GB · small≈2.5GB · medium≈3.5GB · large-v3≈5.5GB
+                    </p>
+                  </Field>
+                  <Field label="Device">
+                    <div className="flex gap-2">
+                      {['cuda', 'cpu'].map(d => (
+                        <button
+                          key={d}
+                          onClick={() => set('asr_device', d)}
+                          className="font-mono text-xs px-4 py-2 rounded border transition-all"
+                          style={{
+                            background:  settings.asr_device === d ? 'rgba(122,171,138,0.15)' : 'transparent',
+                            borderColor: settings.asr_device === d ? 'rgba(122,171,138,0.5)' : 'var(--border)',
+                            color:        settings.asr_device === d ? 'var(--sage)' : 'var(--text-muted)',
+                          }}
+                        >
+                          {d.toUpperCase()}
+                          {d === 'cuda' ? ' ★' : ''}
+                        </button>
+                      ))}
+                    </div>
+                    {settings.asr_device === 'cpu' && (
+                      <p className="field-hint text-rust/80">
+                        ⚠ CPU 模式速度较慢，建议使用 GPU
+                      </p>
+                    )}
+                  </Field>
+                </div>
+              )}
             </section>
+
           </div>
         )}
 
