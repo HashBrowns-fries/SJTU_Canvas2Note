@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { streamChat } from '../api'
 import { useAutoScroll } from '../hooks'
 import type { ChatMessage } from '../types'
@@ -99,11 +101,18 @@ export function ChatPanel({ contextNote }: Props) {
                 {m.role === 'user' ? '▸ you' : '◈ llm'}
               </span>
             </div>
-            <p className={`font-mono text-xs leading-relaxed whitespace-pre-wrap ${
-              i === messages.length - 1 && streaming && m.role === 'assistant' ? 'cursor' : ''
-            }`}>
-              {m.content || (streaming && m.role === 'assistant' ? '' : '…')}
-            </p>
+            {m.role === 'user' ? (
+              <p className="font-mono text-xs leading-relaxed whitespace-pre-wrap">
+                {m.content}
+              </p>
+            ) : (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                className="markdown-body font-mono text-xs leading-relaxed"
+              >
+                {m.content + (i === messages.length - 1 && streaming ? '█' : '')}
+              </ReactMarkdown>
+            )}
           </div>
         ))}
       </div>
