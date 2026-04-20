@@ -1,16 +1,40 @@
 """
-语音转写：支持本地 faster-whisper 和 OpenAI 兼容 ASR API
+语音转写：支持本地 faster-whisper、FunASR (SenseVoice/Paraformer) 和 OpenAI 兼容 ASR API
 """
 import os
 import subprocess
+import importlib
 from pathlib import Path
-from config import AUDIO_DIR, ASR_DEVICE, ASR_MODEL
+from config import AUDIO_DIR
 
 _model = None
+_fun_model = None
 
 
-def _get_device():
-    if ASR_DEVICE != "cuda":
+def _reload():
+    """Reload config so new settings.json values take effect."""
+    global _model, _fun_model
+    _model = None
+    _fun_model = None
+    import config as _c
+    importlib.reload(_c)
+
+
+def _cfg() -> dict:
+    """Read ASR config from settings.json (runtime overrides)."""
+    f = Path(__file__).parent.parent / "settings.json"
+    defaults = {"asr_engine": "funasr", "asr_device": "cuda", "asr_model": "iic/SenseVoiceSmall",
+                "asr_api_base": "", "asr_api_key": "", "asr_api_model": "whisper-1"}
+    if f.exists():
+        import json
+        return {**defaults, **json.loads(f.read_text())}
+    return defaults
+
+
+def _gpu_info():
+    """Returns (device_str, gpu_index)."""
+    cfg = _cfg()
+    if cfg.get("asr_device") != "cuda":
         return "cpu", -1
     free_mem = []
     try:
@@ -24,88 +48,90 @@ def _get_device():
     return f"cuda:{idx}", idx if max(free_mem) >= 6000 else -1
 
 
-def _load_model():
+# ── faster-whisper ─────────────────────────────────────────────────────────────
+
+def _load_whisper():
     global _model
     if _model is not None:
         return _model
-
-    device, idx = _get_device()
+    device, idx = _gpu_info()
+    cfg = _cfg()
     compute = "float16" if device.startswith("cuda") else "int8"
-
     from faster_whisper import WhisperModel
-    print(f"[ASR] 加载 faster-whisper {ASR_MODEL} on {device} ...")
+    print(f"[ASR] 加载 faster-whisper {cfg['asr_model']} on {device} ...")
     kw = {} if idx < 0 else {"device_index": idx}
-    _model = WhisperModel(ASR_MODEL, device="cuda" if device.startswith("cuda") else "cpu",
+    _model = WhisperModel(cfg["asr_model"],
+                          device="cuda" if device.startswith("cuda") else "cpu",
                           compute_type=compute, **kw)
     print("[ASR] 模型加载完成")
     return _model
 
 
-def transcribe(audio_path: str | os.PathLike, course_name: str = "") -> str:
-    """
-    转写音频文件。
-    - ASR_DEVICE=cuda/cpu  → 本地 faster-whisper
-    - ASR_DEVICE=api         → OpenAI 兼容 ASR API（需配合 settings 中的 asr_api_* 配置）
-    """
-    if ASR_DEVICE == "api":
-        return _transcribe_api(audio_path, course_name)
-    return _transcribe_local(audio_path, course_name)
-
-
-def _transcribe_local(audio_path: str | os.PathLike, course_name: str = "") -> str:
-    audio_path = os.fspath(audio_path)
-    ap = Path(audio_path)
-    print(f"[ASR] 转录: {ap.name}")
-    model = _load_model()
-    segments, _ = model.transcribe(
-        audio_path,
-        language="zh",
-        beam_size=5,
-    )
+def _transcribe_whisper(audio_path: str | os.PathLike) -> str:
+    print(f"[ASR] 转录: {Path(audio_path).name}")
+    model = _load_whisper()
+    segments, _ = model.transcribe(str(audio_path), language="zh", beam_size=5)
     text = "".join(s.text for s in segments).strip()
     print(f"[ASR] 完成，字符数: {len(text)}")
     return text
 
 
-def _load_settings() -> dict:
-    settings_file = Path(__file__).parent.parent / "settings.json"
-    if settings_file.exists():
-        import json
-        return {
-            "asr_api_base":  "",
-            "asr_api_key":   "",
-            "asr_api_model": "whisper-1",
-            **json.loads(settings_file.read_text()),
-        }
-    return {"asr_api_base": "", "asr_api_key": "", "asr_api_model": "whisper-1"}
+# ── FunASR ─────────────────────────────────────────────────────────────────────
+
+def _load_funasr():
+    global _fun_model
+    if _fun_model is not None:
+        return _fun_model
+    device, _ = _gpu_info()
+    cfg = _cfg()
+    actual = device if device.startswith("cuda") else "cpu"
+    print(f"[FunASR] 加载 {cfg['asr_model']} on {actual} ...")
+    from funasr import AutoModel
+    _fun_model = AutoModel(model=cfg["asr_model"], device=actual, disable_update=True)
+    print("[FunASR] 模型加载完成")
+    return _fun_model
 
 
-def _transcribe_api(audio_path: str | os.PathLike, course_name: str = "") -> str:
-    """通过 OpenAI 兼容 ASR API 转写。"""
-    cfg = _load_settings()
-    ap = Path(audio_path)
-    print(f"[ASR API] 转录: {ap.name}")
+def _transcribe_funasr(audio_path: str | os.PathLike) -> str:
+    print(f"[FunASR] 转录: {Path(audio_path).name}")
+    model = _load_funasr()
+    res = model.generate(input=str(audio_path), language="auto", use_itn=True, batch_size_s=60)
+    text = res[0]["text"].strip() if res else ""
+    import re
+    text = re.sub(r'<\|[^|]+\|>', '', text).strip()
+    print(f"[FunASR] 完成，字符数: {len(text)}")
+    return text
 
+
+# ── OpenAI 兼容 API ────────────────────────────────────────────────────────────
+
+def _transcribe_api(audio_path: str | os.PathLike) -> str:
+    cfg = _cfg()
+    print(f"[ASR API] 转录: {Path(audio_path).name}")
     base_url = cfg.get("asr_api_base", "")
     api_key  = cfg.get("asr_api_key", "")
-    api_model = cfg.get("asr_api_model", "whisper-1")
-
+    model    = cfg.get("asr_api_model", "whisper-1")
     if not base_url or not api_key:
-        raise RuntimeError(
-            "ASR 已切换为 API 模式，请在设置中配置 ASR API（Base URL + API Key）。"
-        )
-
+        raise RuntimeError("ASR API 模式未配置，请在设置中填入 Base URL + API Key")
     from openai import OpenAI
     client = OpenAI(base_url=base_url, api_key=api_key)
     with open(audio_path, "rb") as f:
-        resp = client.audio.transcriptions.create(
-            model=api_model,
-            file=f,
-            language="zh",
-        )
+        resp = client.audio.transcriptions.create(model=model, file=f, language="zh")
     text = resp.text.strip()
     print(f"[ASR API] 完成，字符数: {len(text)}")
     return text
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+def transcribe(audio_path: str | os.PathLike, course_name: str = "") -> str:
+    cfg = _cfg()
+    engine = cfg.get("asr_engine", "funasr")
+    if engine == "api":
+        return _transcribe_api(audio_path)
+    if engine == "funasr":
+        return _transcribe_funasr(audio_path)
+    return _transcribe_whisper(audio_path)
 
 
 def transcribe_video(video_path: Path, course_name: str = "") -> str:
@@ -121,8 +147,8 @@ def extract_audio(video_path: Path, course_name: str = "") -> Path:
         return audio_path
     print(f"[ffmpeg] 提取音频: {video_path.name}")
     subprocess.run(
-        ["ffmpeg", "-i", str(video_path), "-vn",
-         "-ar", "16000", "-ac", "1", "-f", "wav", "-y", str(audio_path)],
+        ["ffmpeg", "-i", str(video_path),
+         "-vn", "-ar", "16000", "-ac", "1", "-f", "wav", "-y", str(audio_path)],
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     return audio_path

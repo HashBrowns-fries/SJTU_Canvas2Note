@@ -1,4 +1,6 @@
-"""FastAPI backend for Canvas2note web UI."""
+"""
+FastAPI backend for Canvas2note web UI.
+"""
 import asyncio
 import json
 import re
@@ -33,8 +35,9 @@ DEFAULTS = {
     "llm_base_url":    DEFAULT_LLM_BASE,
     "llm_api_key":     DEFAULT_LLM_KEY,
     "llm_model":       DEFAULT_LLM_MODEL,
-    "asr_model":       "base",
-    "asr_device":      "cuda",
+    "asr_model":       "iic/SenseVoiceSmall",
+    "asr_engine":      "funasr",  # faster-whisper / funasr / api
+    "asr_device":      "cuda",   # cuda / cpu（仅 faster-whisper 模式有效）
     "asr_api_base":    "",
     "asr_api_key":     "",
     "asr_api_model":   "whisper-1",
@@ -71,6 +74,11 @@ def make_task(kind: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 # API — Courses
 # ═══════════════════════════════════════════════════════════════════════════════
+
+def canvas() -> CanvasClient:
+    cfg = _cfg()
+    return CanvasClient(base_url=cfg["canvas_base_url"], token=cfg["canvas_token"])
+
 
 @app.get("/api/courses")
 def list_courses():
@@ -238,290 +246,238 @@ def download_file(path: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# API — Downloads
+# Canvas Downloads
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class DownloadRequest(BaseModel):
-    type: str          # "file" | "video"
-    course_id: int
-    course_name: str
-    item: dict
-
-
-def _safe_name(name: str) -> str:
-    return "".join(c if c.isalnum() or c in " ._-" else "_" for c in name).strip()
-
-
-def _do_download_file(tid: str, req: DownloadRequest):
-    try:
-        tasks[tid]["status"] = "running"
-        dest = DOWNLOAD_DIR / _safe_name(req.course_name)
-        dest.mkdir(parents=True, exist_ok=True)
-        f = req.item
-        path = canvas().download(f["url"], dest / f["display_name"])
-        tasks[tid].update(status="done", progress=100, result=str(path))
-    except Exception as e:
-        tasks[tid].update(status="error", error=str(e))
-
-
-def _do_download_video(tid: str, req: DownloadRequest):
-    try:
-        tasks[tid]["status"] = "running"
-        dest = DOWNLOAD_DIR / _safe_name(req.course_name)
-        dest.mkdir(parents=True, exist_ok=True)
-        obj = req.item
-        sources = canvas().get_media_sources(obj["media_id"])
-        mp4 = next((s for s in sources if "mp4" in s.get("content_type", "")), None)
-        if not mp4:
-            tasks[tid].update(status="error", error="No mp4 source found")
-            return
-        title = _safe_name(obj.get("title") or obj["media_id"])
-        path = canvas().download(mp4["url"], dest / f"{title}.mp4")
-        tasks[tid].update(status="done", progress=100, result=str(path))
-    except Exception as e:
-        tasks[tid].update(status="error", error=str(e))
-
-
 @app.post("/api/download")
-def download(req: DownloadRequest, background_tasks: BackgroundTasks):
-    tid = make_task("download")
-    if req.type == "file":
-        background_tasks.add_task(_do_download_file, tid, req)
-    elif req.type == "video":
-        background_tasks.add_task(_do_download_video, tid, req)
-    else:
-        raise HTTPException(400, "type must be 'file' or 'video'")
+def start_download(body: dict):
+    kind = body.get("type", "file")
+    tid = make_task(kind)
+    tasks[tid].update({"course_id": body.get("course_id"), "course_name": body.get("course_name"), "item": body.get("item")})
+    if kind == "file":
+        BackgroundTasks().add_task(_do_download, tid, body)
     return {"task_id": tid}
 
 
-@app.get("/api/downloads")
-def list_downloads():
-    result = []
-    for course_dir in DOWNLOAD_DIR.iterdir():
-        if course_dir.is_dir():
-            for f in course_dir.iterdir():
-                result.append({
-                    "path": str(f),
-                    "name": f.name,
-                    "course": course_dir.name,
-                    "size": f.stat().st_size,
-                    "is_video": f.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv"},
-                })
-    return result
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# API — SJTU 课堂录屏（v.sjtu.edu.cn）
-# ═══════════════════════════════════════════════════════════════════════════════
-
-_video_client: "SJTUVideoClient | None" = None
-_saved_ja_auth_cookie: str = ""   # persisted so new client instances can reuse it
-
-def _get_video_client() -> "SJTUVideoClient":
-    global _video_client
-    if _video_client is None:
-        from canvas.video_client import SJTUVideoClient
+def _do_download(tid: str, body: dict):
+    import asyncio
+    async def _run():
+        from canvas.client import CanvasClient
         cfg = _cfg()
-        cookie = _saved_ja_auth_cookie or cfg.get("ja_auth_cookie", "")
-        _video_client = SJTUVideoClient(
-            ja_auth_cookie=cookie,
-            canvas_token=cfg.get("canvas_token", ""),
-        )
-    return _video_client
+        c = CanvasClient(base_url=cfg["canvas_base_url"], token=cfg["canvas_token"])
+        item = body["item"]
+        course_id = body["course_id"]
+        course_name = body["course_name"]
+        out_dir = DOWNLOAD_DIR / course_name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        tasks[tid]["status"] = "done"
+        tasks[tid]["result"] = f"Downloaded: {item['display_name']}"
+        await c.download_file(course_id, item["id"], item["display_name"], str(out_dir))
+    asyncio.run(_run())
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Video Downloads
+# ═══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/video/login")
 def video_login():
-    """登录 jAccount + 视频平台"""
-    import threading
+    from canvas.video_client import VideoClient
+    cfg = _cfg()
+    tid = make_task("video_login")
+    tasks[tid]["status"] = "pending"
+    BackgroundTasks().add_task(_do_video_login, tid, cfg["ja_auth_cookie"])
+    return {"task_id": tid}
 
-    def _do():
-        global _video_client, _saved_ja_auth_cookie
+
+def _do_video_login(tid: str, cookie: str):
+    import asyncio
+    async def _run():
+        from canvas.video_client import VideoClient
         cfg = _cfg()
-        cookie = cfg.get("ja_auth_cookie", "")
-        _saved_ja_auth_cookie = cookie
-        _video_client = None
-        client = _get_video_client()
-        try:
-            ok = client.login(
-                ja_auth_cookie=cookie,
-                canvas_token=cfg.get("canvas_token", ""),
-            )
-            tasks["video_login"] = {
-                "id": "video_login", "kind": "video_login",
-                "status": "done" if ok else "error",
-                "progress": 100, "result": "ok" if ok else None,
-                "error": None if ok else "Login failed",
-            }
-        except Exception as e:
-            tasks["video_login"] = {
-                "id": "video_login", "kind": "video_login",
-                "status": "error", "progress": 100,
-                "result": None, "error": str(e),
-            }
-
-    tasks["video_login"] = {
-        "id": "video_login", "kind": "video_login",
-        "status": "running", "progress": 0,
-        "result": None, "error": None,
-    }
-    t = threading.Thread(target=_do, daemon=True)
-    t.start()
-    return {"task_id": "video_login"}
+        vc = VideoClient(ja_auth_cookie=cookie)
+        await vc.login()
+        tasks[tid]["status"] = "done"
+        tasks[tid]["result"] = "Login OK"
+    asyncio.run(_run())
 
 
 @app.get("/api/video/courses/{course_id}/videos")
-def video_list(course_id: int):
-    client = _get_video_client()
-    if client._video_token is None:
-        try:
-            client.bind_canvas_course(course_id)
-        except Exception as e:
-            print(f"[ERROR] bind_canvas_course({course_id}) failed: {e}")
-            raise HTTPException(503, f"视频平台登录失败: {e}")
-    videos = client.list_videos(course_id)
-    return [{"id": v.id, "title": v.title, "duration": v.duration,
-             "thumbnail": v.thumbnail, "size": v.size,
-             "cour_id": v.cour_id} for v in videos]
-
-
-@app.get("/api/video/plays")
-def video_plays(video_id: str, title: str = ""):
-    """获取某个视频的所有播放片段（主屏幕 / 录屏轨道）"""
-    client = _get_video_client()
-    info = client.get_video_info(video_id, video_title=title)
-    return [
-        {"id": p.id, "name": p.name, "index": p.index, "url": p.rtmp_url_hdv}
-        for p in info.plays
-    ]
-
-
-class VideoDownloadRequest(BaseModel):
-    course_id: int
-    course_name: str
-    video_id: str
-    title: str = ""
-    play_index: int = -1   # -1=自动选录屏轨道，>=0=指定片段
+def list_video_videos(course_id: int):
+    from canvas.video_client import VideoClient
+    cfg = _cfg()
+    vc = VideoClient(ja_auth_cookie=cfg.get("ja_auth_cookie", ""))
+    return asyncio.run(vc.list_course_videos(course_id))
 
 
 @app.post("/api/video/download")
-def video_download(req: VideoDownloadRequest, background_tasks: BackgroundTasks):
-    tid = make_task("video_download")
-    tasks[tid]["progress"] = 0
-
-    def _do():
-        try:
-            tasks[tid]["status"] = "running"
-            client = _get_video_client()
-            dest = DOWNLOAD_DIR / _safe_name(req.course_name)
-            dest.mkdir(parents=True, exist_ok=True)
-
-            class _Prog:
-                def __init__(self):
-                    self.processed = 0
-                    self.total = 1
-            _prog = _Prog()
-
-            def on_progress(p: "VideoDownloadProgress"):
-                _prog.processed = p.processed
-                _prog.total = max(p.total, 1)
-                tasks[tid]["progress"] = int(_prog.processed * 100 // _prog.total)
-
-            # 获取片段信息用于命名
-            info = client.get_video_info(req.video_id, req.title)
-            screen_recs = [p for p in info.plays if p.index > 0]
-            selected_play = screen_recs[0] if req.play_index < 0 else next(
-                (p for p in info.plays if p.index == req.play_index), info.plays[0]
-            )
-            if selected_play:
-                path = dest / selected_play.name
-
-            client.download_video(req.video_id, path, title=req.title,
-                                  play_index=req.play_index, progress_handler=on_progress)
-            tasks[tid].update(status="done", progress=100, result=str(path))
-        except Exception as e:
-            tasks[tid].update(status="error", error=str(e))
-
-    background_tasks.add_task(_do)
+def start_video_download(body: dict):
+    from canvas.video_client import VideoClient
+    import asyncio
+    cfg = _cfg()
+    tid = make_task("video")
+    tasks[tid].update({
+        "course_id": body.get("course_id"),
+        "course_name": body.get("course_name"),
+        "video_id": body.get("video_id"),
+        "title": body.get("title"),
+        "play_index": body.get("play_index"),
+    })
+    BackgroundTasks().add_task(_do_video_download, tid, body, cfg["ja_auth_cookie"])
     return {"task_id": tid}
 
 
+def _do_video_download(tid: str, body: dict, cookie: str):
+    import asyncio
+    async def _run():
+        from canvas.video_client import VideoClient
+        cfg = _cfg()
+        vc = VideoClient(ja_auth_cookie=cookie)
+        await vc.login()
+        course_id = body["course_id"]
+        course_name = body["course_name"]
+        video_id = body["video_id"]
+        title = body.get("title", video_id)
+        play_index = body.get("play_index")
+        out_dir = DOWNLOAD_DIR / course_name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        tasks[tid]["status"] = "downloading"
+        await vc.download_video(course_id, video_id, title, str(out_dir), play_index=play_index)
+        tasks[tid]["status"] = "done"
+        tasks[tid]["result"] = f"Downloaded: {title}"
+    asyncio.run(_run())
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# API — PPT 录屏
+# Batch Transcribe
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class PPTDownloadRequest(BaseModel):
-    course_name: str
-    video_title: str
-    cour_id: str
+class BatchItem(BaseModel):
+    course_id:    int
+    course_name:  str
+    video_id:     str
+    title:        str
+    play_index:   int = 0
 
+
+class BatchTranscribeRequest(BaseModel):
+    items:        list[BatchItem]
+    delete_video: bool = True
+
+
+@app.post("/api/batch/transcribe")
+def batch_transcribe(req: BatchTranscribeRequest):
+    tid = make_task("batch")
+    # Normalize Pydantic models to plain dicts
+    items = [x.model_dump() if hasattr(x, "model_dump") else x for x in req.items]
+    tasks[tid].update({"items": items, "done_count": 0, "total_count": len(items), "current": "", "status": "running"})
+    BackgroundTasks().add_task(_do_batch_transcribe, tid, items, req.delete_video)
+    return {"task_id": tid}
+
+
+def _do_batch_transcribe(tid: str, items: list[dict], delete_video: bool):
+    import asyncio, shutil
+    async def _run():
+        from canvas.video_client import VideoClient
+        from asr.transcriber import transcribe_video
+        cfg = _cfg()
+        vc = VideoClient(ja_auth_cookie=cfg.get("ja_auth_cookie", ""))
+        await vc.login()
+        updated_items = []
+        for i, raw_item in enumerate(items):
+            item = raw_item.model_dump() if hasattr(raw_item, 'model_dump') else raw_item
+            course_name = item["course_name"]
+            video_id = item["video_id"]
+            title = item["title"]
+            play_index = item.get("play_index", 0)
+            tasks[tid]["current"] = title
+            tasks[tid]["done_count"] = i
+            try:
+                # Download
+                out_dir = DOWNLOAD_DIR / course_name
+                out_dir.mkdir(parents=True, exist_ok=True)
+                video_path = await vc.download_video(item["course_id"], video_id, title, str(out_dir), play_index=play_index)
+                tasks[tid]["items"] = updated_items + [{"title": title, "status": "↓"}]
+                # Transcribe
+                text = transcribe_video(Path(video_path), course_name)
+                tasks[tid]["items"] = updated_items + [{"title": title, "status": "◎"}]
+                # Delete video
+                if delete_video and video_path and Path(video_path).exists():
+                    Path(video_path).unlink()
+                    tasks[tid]["items"] = updated_items + [{"title": title, "status": "✓"}]
+                else:
+                    tasks[tid]["items"] = updated_items + [{"title": title, "status": "✓"}]
+                updated_items = tasks[tid]["items"]
+            except Exception as e:
+                tasks[tid]["items"] = updated_items + [{"title": title, "status": "✗", "error": str(e)}]
+                updated_items = tasks[tid]["items"]
+        tasks[tid]["status"] = "done"
+        tasks[tid]["done_count"] = len(items)
+        tasks[tid]["current"] = ""
+    asyncio.run(_run())
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PPT
+# ═══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/video/ppt")
-def ppt_list(cour_id: str, course_id: int):
-    """获取某节课的 PPT 幻灯片列表"""
-    client = _get_video_client()
-    slides = client.get_ppt_slides(cour_id)
-    return [{"url": s.get("ppt_img_url") or "", "sec": s.get("create_sec", "")} for s in slides]
+def list_ppt(cour_id: str, course_id: int):
+    from canvas.video_client import VideoClient
+    import asyncio
+    cfg = _cfg()
+    vc = VideoClient(ja_auth_cookie=cfg.get("ja_auth_cookie", ""))
+    return asyncio.run(vc.list_ppt_slides(cour_id, course_id))
 
 
 @app.post("/api/video/ppt/download")
-def ppt_download(req: PPTDownloadRequest, background_tasks: BackgroundTasks):
-    """下载 PPT 幻灯片并合并为 PDF"""
-    tid = make_task("ppt_download")
-    tasks[tid]["progress"] = 0
-
-    def _do():
-        try:
-            tasks[tid]["status"] = "running"
-            client = _get_video_client()
-            slides = client.get_ppt_slides(req.cour_id)
-            if not slides:
-                tasks[tid].update(status="error", error="该课程无 PPT")
-                return
-
-            dest = DOWNLOAD_DIR / _safe_name(req.course_name)
-            dest.mkdir(parents=True, exist_ok=True)
-            safe = re.sub(r"[^\w\u4e00-\u9fff ._-]", "_", req.video_title).strip()
-            pdf_path = dest / f"{safe}_PPT.pdf"
-
-            from PIL import Image
-            import io
-
-            images = []
-            for i, slide in enumerate(slides):
-                img_url = slide.get("ppt_img_url")
-                if not img_url:
-                    continue
-                img_data = client.session.get(img_url, timeout=30).content
-                img = Image.open(io.BytesIO(img_data)).convert("RGB")
-                images.append(img)
-                tasks[tid]["progress"] = int((i + 1) * 100 // max(len(slides), 1))
-
-            if images:
-                images[0].save(str(pdf_path), save_all=True, append_images=images[1:])
-            tasks[tid].update(status="done", progress=100, result=str(pdf_path))
-        except Exception as e:
-            tasks[tid].update(status="error", error=str(e))
-
-    background_tasks.add_task(_do)
+def download_ppt(body: dict):
+    from canvas.video_client import VideoClient
+    import asyncio
+    cfg = _cfg()
+    tid = make_task("ppt")
+    tasks[tid]["status"] = "running"
+    BackgroundTasks().add_task(_do_ppt_download, tid, body, cfg["ja_auth_cookie"])
     return {"task_id": tid}
 
 
-
+def _do_ppt_download(tid: str, body: dict, cookie: str):
+    import asyncio
+    async def _run():
+        from canvas.video_client import VideoClient
+        cfg = _cfg()
+        vc = VideoClient(ja_auth_cookie=cookie)
+        await vc.login()
+        course_name = body["course_name"]
+        video_title = body["video_title"]
+        cour_id = body["cour_id"]
+        out_dir = DOWNLOAD_DIR / course_name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        await vc.download_ppt(cour_id, video_title, str(out_dir))
+        tasks[tid]["status"] = "done"
+    asyncio.run(_run())
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# API — Transcriptions
+# API — Downloads / Transcriptions / Notes
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TranscribeRequest(BaseModel):
-    video_path: str
-    course_name: str
+@app.post("/api/transcribe")
+def start_transcribe(body: dict):
+    from asr.transcriber import transcribe_video
+    video_path = body.get("video_path", "")
+    course_name = body.get("course_name", "")
+    if not video_path:
+        raise HTTPException(400, "video_path required")
+    tid = make_task("transcribe")
+    tasks[tid]["course_name"] = course_name
+    tasks[tid]["status"] = "running"
+    BackgroundTasks().add_task(_do_transcribe, tid, video_path, course_name)
+    return {"task_id": tid}
 
 
 def _do_transcribe(tid: str, video_path: str, course_name: str):
     try:
-        tasks[tid]["status"] = "running"
         from asr.transcriber import transcribe_video
         text = transcribe_video(Path(video_path), course_name)
         stem = Path(video_path).stem
@@ -529,16 +485,28 @@ def _do_transcribe(tid: str, video_path: str, course_name: str):
         course_dir.mkdir(parents=True, exist_ok=True)
         out = course_dir / (stem + ".txt")
         out.write_text(text, encoding="utf-8")
-        tasks[tid].update(status="done", progress=100, result=str(out))
+        tasks[tid]["status"] = "done"
+        tasks[tid]["result"] = {"text": text, "path": str(out), "chars": len(text)}
     except Exception as e:
-        tasks[tid].update(status="error", error=str(e))
+        tasks[tid]["status"] = "error"
+        tasks[tid]["error"] = str(e)
 
 
-@app.post("/api/transcribe")
-def transcribe(req: TranscribeRequest, background_tasks: BackgroundTasks):
-    tid = make_task("transcribe")
-    background_tasks.add_task(_do_transcribe, tid, req.video_path, req.course_name)
-    return {"task_id": tid}
+@app.get("/api/downloads")
+def list_downloads():
+    result = []
+    for course_dir in DOWNLOAD_DIR.iterdir():
+        if course_dir.is_dir():
+            for f in sorted(course_dir.iterdir()):
+                if f.is_file():
+                    result.append({
+                        "name":     f.name,
+                        "path":     str(f),
+                        "size":     f.stat().st_size,
+                        "is_video": f.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".webm", ".wav"},
+                        "course":   course_dir.name,
+                    })
+    return result
 
 
 @app.get("/api/transcriptions")
@@ -548,24 +516,26 @@ def list_transcriptions():
         if course_dir.is_dir():
             for f in sorted(course_dir.glob("*.txt")):
                 result.append({
-                    "name": f"{course_dir.name}/{f.stem}",
-                    "path": str(f),
+                    "name": course_dir.name + "/" + f.stem,
+                    "path": "data/audio/" + f"{course_dir.name}/{f.stem}",
                     "size": f.stat().st_size,
                     "course": course_dir.name,
                 })
     return result
 
 
-@app.get("/api/transcriptions/{name}")
-def get_transcription(name: str):
-    # name 格式: {course}/{stem}
+@app.get("/api/transcription")
+def get_transcription(name: str = ""):
+    """返回单个转写文件内容"""
+    if not name:
+        raise HTTPException(400, "name query parameter required")
     if "/" in name:
         course, stem = name.split("/", 1)
         path = AUDIO_DIR / course / (stem + ".txt")
     else:
         path = AUDIO_DIR / (name + ".txt")
     if not path.exists():
-        raise HTTPException(404, "Not found")
+        raise HTTPException(404, f"Not found: {path}")
     return {"name": name, "text": path.read_text(encoding="utf-8")}
 
 
@@ -577,7 +547,7 @@ class NotesRequest(BaseModel):
     course_name: str
     doc_paths: list[str] = []
     transcript: str = ""
-    transcript_name: str = ""  # e.g. "生物学基础_第2讲_" — 用于命名笔记文件
+    transcript_name: str = ""
 
 
 async def _stream_notes(req: NotesRequest) -> AsyncGenerator[str, None]:
@@ -587,7 +557,6 @@ async def _stream_notes(req: NotesRequest) -> AsyncGenerator[str, None]:
 
     cfg = _cfg()
 
-    # 解析所有文档并拼接
     doc_text_parts = []
     for i, dp in enumerate(req.doc_paths):
         try:
@@ -607,7 +576,6 @@ async def _stream_notes(req: NotesRequest) -> AsyncGenerator[str, None]:
         cutoff = last_newline if last_newline > limit * 0.7 else int(limit * 0.85)
         return text[:cutoff].rstrip()
 
-    # 用 transcript_name（无扩展名）命名笔记文件；无则 fallback
     note_stem = req.transcript_name or (Path(req.doc_paths[0]).stem if req.doc_paths else "lecture")
     course_dir = NOTES_DIR / _safe_name(req.course_name)
     course_dir.mkdir(parents=True, exist_ok=True)
@@ -679,40 +647,6 @@ def get_note(course: str, filename: str):
     return {"content": path.read_text(encoding="utf-8"), "path": str(path)}
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# API — Chat History
-# ═══════════════════════════════════════════════════════════════════════════════
-
-CHATS_DIR = Path(__file__).parent / "data" / "chats"
-CHATS_DIR.mkdir(parents=True, exist_ok=True)
-
-
-class ChatHistoryRequest(BaseModel):
-    conversation_id: str   # e.g. "{course}_{note_stem}"
-    messages: list[dict]
-
-
-@app.get("/api/chats/{conversation_id}")
-def get_chat_history(conversation_id: str):
-    """加载某次会话的历史消息"""
-    path = CHATS_DIR / f"{conversation_id}.json"
-    if not path.exists():
-        return {"messages": []}
-    import json
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return {"messages": data.get("messages", [])}
-
-
-@app.post("/api/chats")
-def save_chat_history(body: ChatHistoryRequest):
-    """保存某次会话的消息列表（完整覆盖）"""
-    import json
-    path = CHATS_DIR / f"{body.conversation_id}.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"messages": body.messages}, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"ok": True}
-
-
 @app.put("/api/notes/{course}/{filename}")
 def save_note(course: str, filename: str, body: dict):
     path = NOTES_DIR / course / filename
@@ -731,40 +665,29 @@ class ChatRequest(BaseModel):
     context_note: str = ""
 
 
-async def _stream_chat(req: ChatRequest) -> AsyncGenerator[str, None]:
+async def _stream_chat(messages: list[dict], context_note: str) -> AsyncGenerator[str, None]:
     from llm_client import llm_stream
-
     cfg = _cfg()
-
-    system = """你是一个学术笔记助手，帮助学生理解和完善课堂笔记。
-
-回答规范：
-- 回答简洁，命中要点，不要废话
-- 专业术语保留原文英文
-- 如引用笔记内容，用 > 引用块标注来源章节
-- 可主动建议补充遗漏的知识点
-- 若发现笔记内容有误，指出并给出正确表述"""
-    if req.context_note:
-        system += f"\n\n当前笔记内容：\n{req.context_note[:8000]}"
-
+    from notes.generator import CHAT_SYSTEM_PROMPT
+    ctx = f"\n\n下面是当前笔记内容（供参考）：\n{context_note}" if context_note else ""
+    sys = CHAT_SYSTEM_PROMPT + ctx
+    full_text: list[str] = []
     try:
         async for raw in llm_stream(
             base_url=cfg["llm_base_url"],
             api_key=cfg["llm_api_key"],
             model=cfg["llm_model"],
-            system=system,
-            messages=req.messages,
-            temperature=0.5,
+            system=sys,
+            messages=messages,
+            temperature=0.7,
         ):
             try:
                 line = raw.strip()
                 if line.startswith("data: "):
                     json_str = line[6:].rsplit("\n", 1)[0]
                     obj = json.loads(json_str)
-                    if "error" in obj:
-                        yield f"data: {json.dumps({'error': obj['error']})}\n\n"
-                        return
                     if obj.get("delta"):
+                        full_text.append(obj["delta"])
                         yield f"data: {json.dumps({'delta': obj['delta']})}\n\n"
                     elif obj.get("done"):
                         yield f"data: {json.dumps({'done': True})}\n\n"
@@ -776,18 +699,114 @@ async def _stream_chat(req: ChatRequest) -> AsyncGenerator[str, None]:
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
-    return StreamingResponse(_stream_chat(req), media_type="text/event-stream")
+    return StreamingResponse(_stream_chat(req.messages, req.context_note), media_type="text/event-stream")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# API — Chat History
+# ═══════════════════════════════════════════════════════════════════════════════
+
+CHATS_DIR = Path(__file__).parent / "data" / "chats"
+
+
+class ChatHistoryRequest(BaseModel):
+    conversation_id: str
+    messages: list[dict]
+
+
+@app.get("/api/chats/{conversation_id}")
+def get_chat_history(conversation_id: str):
+    path = CHATS_DIR / f"{conversation_id}.json"
+    if not path.exists():
+        return {"messages": []}
+    import json
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {"messages": data.get("messages", [])}
+
+
+@app.post("/api/chats")
+def save_chat_history(body: ChatHistoryRequest):
+    CHATS_DIR.mkdir(parents=True, exist_ok=True)
+    path = CHATS_DIR / f"{body.conversation_id}.json"
+    import json
+    path.write_text(json.dumps({"messages": body.messages}, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# API — Settings
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/settings")
+def get_settings():
+    return _cfg()
+
+
+@app.put("/api/settings")
+def put_settings(body: dict):
+    _save_settings(body)
+    _reset_clients()
+    return {"ok": True}
+
+
+def _reset_clients():
+    import importlib, config as _conf_mod
+    importlib.reload(_conf_mod)
+    # Reset ASR engines so they reload with new settings
+    import asr.transcriber as _asr
+    _asr._reload()
+
+
+@app.post("/api/settings/test_llm")
+def test_llm(body: dict):
+    import httpx
+    try:
+        client = httpx.Client(timeout=30)
+        r = client.post(
+            body["base_url"] + "/chat/completions",
+            headers={"Authorization": f"Bearer {body['api_key']}", "Content-Type": "application/json"},
+            json={"model": body["model"], "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 5},
+        )
+        if r.status_code == 200:
+            return {"ok": True, "reply": r.json().get("choices", [{}])[0].get("message", {}).get("content", "ok")}
+        return {"ok": False, "error": r.text[:200]}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/settings/test_asr")
+def test_asr(body: dict):
+    from openai import OpenAI
+    try:
+        client = OpenAI(base_url=body["base_url"], api_key=body["api_key"])
+        # Use a very short silence as test audio (minimal valid WAV header)
+        import io
+        import struct
+        # Minimal valid WAV: 1 sample at 16kHz mono
+        wav = io.BytesIO()
+        import wave as _wave
+        with _wave.open(wav, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(struct.pack('<h', 0))
+        wav.seek(0)
+        resp = client.audio.transcriptions.create(
+            model=body["model"],
+            file=("silence.wav", wav, "audio/wav"),
+        )
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # API — Tasks
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@app.get("/api/tasks/{task_id}")
-def get_task(task_id: str):
-    if task_id not in tasks:
-        raise HTTPException(404, "Task not found")
-    return tasks[task_id]
+@app.get("/api/tasks/{tid}")
+def get_task(tid: str):
+    return tasks.get(tid, {})
 
 
 @app.get("/api/tasks")
@@ -796,147 +815,32 @@ def list_tasks():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# API — Settings
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class SettingsBody(BaseModel):
-    canvas_base_url: str | None = None
-    canvas_token:    str | None = None
-    ja_auth_cookie:  str | None = None
-    llm_base_url:    str | None = None
-    llm_api_key:     str | None = None
-    llm_model:       str | None = None
-    asr_model:       str | None = None
-    asr_device:      str | None = None
-    asr_api_base:    str | None = None
-    asr_api_key:     str | None = None
-    asr_api_model:   str | None = None
-
-
-@app.get("/api/settings")
-def get_settings():
-    return _load_settings()
-
-
-@app.put("/api/settings")
-def update_settings(body: SettingsBody):
-    data = _load_settings()
-    for k, v in body.model_dump().items():
-        if v is not None:
-            data[k] = v
-    _save_settings(data)
-    # Reset clients so they pick up new credentials
-    _reset_clients()
-    return {"ok": True}
-
-
-class LLMTestBody(BaseModel):
-    base_url: str
-    api_key: str
-    model: str
-
-
-@app.post("/api/settings/test_llm")
-def test_llm(body: LLMTestBody):
-    try:
-        from openai import OpenAI
-        client = OpenAI(base_url=body.base_url, api_key=body.api_key, timeout=15)
-        resp = client.chat.completions.create(
-            model=body.model,
-            messages=[{"role": "user", "content": "回复 ok"}],
-            max_tokens=10,
-        )
-        return {"ok": True, "reply": resp.choices[0].message.content}
-    except Exception as e:
-        raise HTTPException(500, str(e))
-
-
-class ASRTestBody(BaseModel):
-    base_url: str
-    api_key: str
-    model: str
-
-
-@app.post("/api/settings/test_asr")
-def test_asr(body: ASRTestBody):
-    """测试 ASR API 连通性（不实际转写，只测连接）"""
-    try:
-        from openai import OpenAI
-        client = OpenAI(base_url=body.base_url, api_key=body.api_key, timeout=15)
-        # Whisper API 只接受音频文件，发送一个 minimal WAV header 来探测连通性
-        # （无法真正测转写，只能测鉴权）
-        client.models.list()
-        return {"ok": True}
-    except Exception as e:
-        raise HTTPException(500, str(e))
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Client re-init helpers
-# ═══════════════════════════════════════════════════════════════════════════════
-
-_canvas: CanvasClient | None = None
-_llm_client: "AsyncOpenAI | None" = None
-_asr_model:  object | None = None
-
-
-def _reset_clients():
-    global _canvas, _llm_client, _asr_model, _video_client, _saved_ja_auth_cookie
-    _canvas = None
-    _llm_client = None
-    _asr_model = None
-    _video_client = None
-    _saved_ja_auth_cookie = ""
-
-    # Reload config so ASR picks up new device/model/api settings
-    from importlib import reload
-    import config as _config_mod
-    reload(_config_mod)
-    # Reset the cached model so it reloads with new settings
-    import asr.transcriber as _asr_mod
-    _asr_mod._model = None
-
-
-def canvas() -> CanvasClient:
-    global _canvas
-    if _canvas is None:
-        cfg = _cfg()
-        _canvas = CanvasClient(base_url=cfg["canvas_base_url"], token=cfg["canvas_token"])
-    return _canvas
-
-
-def _llm_client_sync():
-    from openai import AsyncOpenAI
-    global _llm_client
-    if _llm_client is None:
-        cfg = _cfg()
-        _llm_client = AsyncOpenAI(base_url=cfg["llm_base_url"], api_key=cfg["llm_api_key"])
-    return _llm_client
-
-
-def _cfg() -> dict:
-    return _load_settings()
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Serve built frontend
+# SPA + Static Files
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _frontend_dist = Path(__file__).parent / "frontend" / "dist"
 
+
+@app.get("/")
+def serve_index():
+    return FileResponse(_frontend_dist / "index.html")
+
+
+@app.get("/{full_path:path}")
+def serve_frontend(full_path: str):
+    p = _frontend_dist / full_path
+    if p.is_file():
+        return FileResponse(p)
+    return FileResponse(_frontend_dist / "index.html")
+
+
 if _frontend_dist.exists():
     app.mount("/assets", StaticFiles(directory=_frontend_dist / "assets"), name="assets")
 
-    @app.get("/{full_path:path}")
-    def spa(full_path: str):
-        return FileResponse(_frontend_dist / "index.html")
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Helpers
+# ═══════════════════════════════════════════════════════════════════════════════
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, timeout_keep_alive=300)
-
-
-def run():
-    import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, timeout_keep_alive=300)
+def _safe_name(name: str) -> str:
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip()

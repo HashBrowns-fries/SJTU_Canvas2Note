@@ -8,7 +8,8 @@ interface Settings {
   llm_api_key:     string
   llm_model:       string
   asr_model:       string
-  asr_device:      string   // "cuda" | "cpu" | "api"
+  asr_engine:      string   // "faster-whisper" | "funasr" | "api"
+  asr_device:      string   // "cuda" | "cpu"
   asr_api_base:    string
   asr_api_key:     string
   asr_api_model:   string
@@ -25,17 +26,30 @@ const LLM_PRESETS = [
   { label: 'Custom',             base_url: '', api_key: '' },
 ]
 
-const ASR_LOCAL_PRESETS = [
-  { label: 'base    (74M)',   value: 'base' },
-  { label: 'small   (244M)', value: 'small' },
-  { label: 'medium  (769M)', value: 'medium' },
-  { label: 'large-v3 (1.5B)', value: 'large-v3' },
+const ASR_ENGINE_PRESETS = [
+  { label: '⚡ faster-whisper',  value: 'faster-whisper' },
+  { label: '🔊 FunASR',           value: 'funasr' },
+  { label: '☁️  API',             value: 'api' },
+]
+
+const ASR_WHISPER_PRESETS = [
+  { label: 'base    (74M)',    value: 'base' },
+  { label: 'small   (244M)',   value: 'small' },
+  { label: 'medium  (769M)',   value: 'medium' },
+  { label: 'large-v3 (1.5B)',  value: 'large-v3' },
+]
+
+const ASR_FUNASR_PRESETS = [
+  { label: 'SenseVoiceSmall',   value: 'iic/SenseVoiceSmall' },
+  { label: 'Fun-ASR-Nano',      value: 'FunAudioLLM/Fun-ASR-Nano-2512' },
+  { label: 'Paraformer-zh',     value: 'paraformer-zh' },
+  { label: 'Paraformer-en',     value: 'paraformer-en' },
 ]
 
 const ASR_API_PRESETS = [
   { label: 'OpenAI Whisper',    value: 'whisper-1' },
-  { label: 'SiliconFlow TTS',  value: 'paraformer-zh' },
-  { label: 'Custom',           value: '' },
+  { label: 'SiliconFlow',       value: 'paraformer-zh' },
+  { label: 'Custom',             value: '' },
 ]
 
 type VideoLoginStatus = 'idle' | 'logging_in' | 'done' | 'error'
@@ -48,7 +62,8 @@ export function SettingsModal({ onClose }: Props) {
     llm_base_url:   'http://localhost:11434/v1',
     llm_api_key:    'ollama',
     llm_model:      'qwen3:8b',
-    asr_model:      'base',
+    asr_model:      'iic/SenseVoiceSmall',
+    asr_engine:     'funasr',
     asr_device:     'cuda',
     asr_api_base:   '',
     asr_api_key:    '',
@@ -127,7 +142,9 @@ export function SettingsModal({ onClose }: Props) {
     if (e.target === overlayRef.current) onClose()
   }
 
-  const isApiMode = settings.asr_device === 'api'
+  const isApiMode    = settings.asr_engine === 'api'
+  const isFunasrMode = settings.asr_engine === 'funasr'
+  const isWhisperMode = settings.asr_engine === 'faster-whisper'
 
   return (
     <div
@@ -350,22 +367,18 @@ export function SettingsModal({ onClose }: Props) {
                 ASR
               </h3>
 
-              {/* 模式切换 */}
-              <Field label="模式">
+              {/* 引擎切换 */}
+              <Field label="引擎">
                 <div className="flex gap-2 mb-3">
-                  {[
-                    { value: 'cuda', label: '⚡ 本地 GPU' },
-                    { value: 'cpu',  label: '💻 本地 CPU' },
-                    { value: 'api',  label: '☁️ API' },
-                  ].map(m => (
+                  {ASR_ENGINE_PRESETS.map(m => (
                     <button
                       key={m.value}
-                      onClick={() => set('asr_device', m.value)}
+                      onClick={() => set('asr_engine', m.value)}
                       className="font-mono text-xs px-4 py-2 rounded border transition-all flex-1"
                       style={{
-                        background:  settings.asr_device === m.value ? 'rgba(122,171,138,0.15)' : 'transparent',
-                        borderColor: settings.asr_device === m.value ? 'rgba(122,171,138,0.5)' : 'var(--border)',
-                        color:        settings.asr_device === m.value ? 'var(--sage)' : 'var(--text-muted)',
+                        background:  settings.asr_engine === m.value ? 'rgba(122,171,138,0.15)' : 'transparent',
+                        borderColor: settings.asr_engine === m.value ? 'rgba(122,171,138,0.5)' : 'var(--border)',
+                        color:        settings.asr_engine === m.value ? 'var(--sage)' : 'var(--text-muted)',
                       }}
                     >
                       {m.label}
@@ -463,9 +476,9 @@ export function SettingsModal({ onClose }: Props) {
               ) : (
                 /* ── 本地模式配置 ── */
                 <div className="space-y-3">
-                  <Field label="Model">
+                  <Field label="模型">
                     <div className="flex flex-wrap gap-1.5 mb-2">
-                      {ASR_LOCAL_PRESETS.map(p => (
+                      {(isFunasrMode ? ASR_FUNASR_PRESETS : ASR_WHISPER_PRESETS).map(p => (
                         <button
                           key={p.value}
                           onClick={() => set('asr_model', p.value)}
@@ -481,11 +494,13 @@ export function SettingsModal({ onClose }: Props) {
                       ))}
                     </div>
                     <p className="field-hint">
-                      Whisper 模型精度：base → small → medium → large-v3<br/>
-                      显存需求：base≈1.5GB · small≈2.5GB · medium≈3.5GB · large-v3≈5.5GB
+                      {isFunasrMode
+                        ? <>SenseVoiceSmall: 中文/粤语/英/日/韩　·　Fun-ASR-Nano: 中文方言+英+日　·　Paraformer: 中文或英文专精</>
+                        : <>Whisper 模型精度：base → small → medium → large-v3<br/>显存需求：base≈1.5GB · small≈2.5GB · medium≈3.5GB · large-v3≈5.5GB</>
+                      }
                     </p>
                   </Field>
-                  <Field label="Device">
+                  <Field label="硬件">
                     <div className="flex gap-2">
                       {['cuda', 'cpu'].map(d => (
                         <button
@@ -498,15 +513,12 @@ export function SettingsModal({ onClose }: Props) {
                             color:        settings.asr_device === d ? 'var(--sage)' : 'var(--text-muted)',
                           }}
                         >
-                          {d.toUpperCase()}
-                          {d === 'cuda' ? ' ★' : ''}
+                          {d === 'cuda' ? '⚡ GPU ★' : '💻 CPU'}
                         </button>
                       ))}
                     </div>
                     {settings.asr_device === 'cpu' && (
-                      <p className="field-hint text-rust/80">
-                        ⚠ CPU 模式速度较慢，建议使用 GPU
-                      </p>
+                      <p className="field-hint text-rust/80">⚠ CPU 模式速度较慢，建议使用 GPU</p>
                     )}
                   </Field>
                 </div>
