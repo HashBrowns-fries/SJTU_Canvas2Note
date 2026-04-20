@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { streamChat } from '../api'
@@ -14,20 +14,48 @@ const QUICK_PROMPTS = [
 ]
 
 interface Props {
+  conversationId: string   // e.g. "{course}_{noteStem}"
   contextNote: string
 }
 
-export function ChatPanel({ contextNote }: Props) {
+export function ChatPanel({ conversationId, contextNote }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const scrollRef = useAutoScroll(messages)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Load history on mount / conversation change
+  useEffect(() => {
+    setLoaded(false)
+    setMessages([])
+    fetch(`/api/chats/${encodeURIComponent(conversationId)}`)
+      .then(r => r.json())
+      .then(data => {
+        setMessages(data.messages || [])
+        setLoaded(true)
+      })
+      .catch(() => setLoaded(true))
+  }, [conversationId])
+
+  function scheduleSave(msgs: ChatMessage[]) {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      fetch('/api/chats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_id: conversationId, messages: msgs }),
+      }).catch(() => {})
+    }, 800)
+  }
 
   async function send(text: string) {
     if (!text.trim() || streaming) return
     const userMsg: ChatMessage = { role: 'user', content: text }
     const newMsgs = [...messages, userMsg]
     setMessages(newMsgs)
+    scheduleSave(newMsgs)
     setInput('')
     setStreaming(true)
 
@@ -45,6 +73,11 @@ export function ChatPanel({ contextNote }: Props) {
           return updated
         })
       })
+      // Save after streaming completes
+      setMessages(prev => {
+        scheduleSave(prev)
+        return prev
+      })
     } finally {
       setStreaming(false)
     }
@@ -52,6 +85,11 @@ export function ChatPanel({ contextNote }: Props) {
 
   function clear() {
     setMessages([])
+    fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversation_id: conversationId, messages: [] }),
+    }).catch(() => {})
   }
 
   return (
@@ -72,7 +110,13 @@ export function ChatPanel({ contextNote }: Props) {
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-        {messages.length === 0 && (
+        {!loaded && (
+          <div className="py-6 text-center">
+            <span className="font-mono text-xs text-[var(--text-muted)] animate-pulse">loading history<span className="cursor" /></span>
+          </div>
+        )}
+
+        {loaded && messages.length === 0 && (
           <div className="py-6 text-center">
             <p className="font-mono text-xs text-[var(--text-muted)] mb-4">ask about the current note</p>
             <div className="space-y-2">

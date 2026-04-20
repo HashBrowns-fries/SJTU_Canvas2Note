@@ -678,6 +678,40 @@ def get_note(course: str, filename: str):
     return {"content": path.read_text(encoding="utf-8"), "path": str(path)}
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# API — Chat History
+# ═══════════════════════════════════════════════════════════════════════════════
+
+CHATS_DIR = Path(__file__).parent / "data" / "chats"
+CHATS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+class ChatHistoryRequest(BaseModel):
+    conversation_id: str   # e.g. "{course}_{note_stem}"
+    messages: list[dict]
+
+
+@app.get("/api/chats/{conversation_id}")
+def get_chat_history(conversation_id: str):
+    """加载某次会话的历史消息"""
+    path = CHATS_DIR / f"{conversation_id}.json"
+    if not path.exists():
+        return {"messages": []}
+    import json
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {"messages": data.get("messages", [])}
+
+
+@app.post("/api/chats")
+def save_chat_history(body: ChatHistoryRequest):
+    """保存某次会话的消息列表（完整覆盖）"""
+    import json
+    path = CHATS_DIR / f"{body.conversation_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"messages": body.messages}, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True}
+
+
 @app.put("/api/notes/{course}/{filename}")
 def save_note(course: str, filename: str, body: dict):
     path = NOTES_DIR / course / filename

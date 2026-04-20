@@ -222,7 +222,10 @@ export function NotesTab({ course }: Props) {
 
       {/* Right: chat */}
       <div className="w-80 shrink-0">
-        <ChatPanel contextNote={content} />
+        <ChatPanel
+          conversationId={selected ? `${selected.course}_${selected.stem}` : ''}
+          contextNote={content}
+        />
       </div>
     </div>
   )
