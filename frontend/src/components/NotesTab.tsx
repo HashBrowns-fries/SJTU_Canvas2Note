@@ -66,9 +66,8 @@ export function NotesTab({ course }: Props) {
       api.downloads().catch(() => []),
       api.transcriptions().catch(() => []),
     ])
-    const safeCourse = (s: string) => s.replace(/[^a-zA-Z0-9 ._\u4e00-\u9fff-]/g, '_').trim()
-    setDownloads(dl.filter(d => safeCourse(d.course) === safeCourse(course.name)))
-    setTranscriptions(tr)
+    setDownloads(dl.filter(d => d.course === course.name))
+    setTranscriptions(tr.filter((t: any) => t.course === course.name))
   }
 
   async function generate() {
@@ -76,19 +75,18 @@ export function NotesTab({ course }: Props) {
     setGenerating(true)
     setGenProgress('')
 
-    let transcript = genTranscript
-    if (!transcript && genTranscript) {
-      const r = await api.transcription(genTranscript).catch(() => null)
-      transcript = r?.text ?? ''
-    } else if (genTranscript) {
-      const r = await api.transcription(genTranscript).catch(() => null)
-      transcript = r?.text ?? ''
-    }
+    // genTranscript: "生物学基础/生物学基础_第2讲_" → fetch text + stem "生物学基础_第2讲_"
+    const transcriptText = genTranscript
+      ? (await api.transcription(genTranscript).catch(() => null))?.text ?? ''
+      : ''
+    const transcriptName = genTranscript
+      ? genTranscript.split('/').pop()?.replace(/\.txt$/, '') ?? ''
+      : ''
 
     try {
       await streamSSE(
         '/notes/generate',
-        { course_name: course.name, doc_paths: genDocPaths, transcript },
+        { course_name: course.name, doc_paths: genDocPaths, transcript: transcriptText, transcript_name: transcriptName },
         delta => setGenProgress(p => p + delta),
       )
       pushToast({ type: 'success', message: '✓ Note generated' })

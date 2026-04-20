@@ -85,6 +85,8 @@ export const api = {
   videoDownload:      (body: { course_id: number; course_name: string; video_id: string; title: string; play_index?: number }) =>
                        post<{ task_id: string }>('/video/download', body),
   videoPlays:         (video_id: string, title?: string): Promise<VideoPlay[]> => get(`/video/plays?video_id=${encodeURIComponent(video_id)}${title ? `&title=${encodeURIComponent(title)}` : ''}`),
+  batchTranscribe:    (items: { course_id: number; course_name: string; video_id: string; title: string; play_index: number }[]) =>
+                       post<{ task_id: string }>('/batch/transcribe', { items, delete_video: true }),
   pptList:           (cour_id: string, course_id: number): Promise<PPTSlide[]> =>
                        get(`/video/ppt?cour_id=${cour_id}&course_id=${course_id}`),
   pptDownload:        (body: { course_name: string; video_title: string; cour_id: string }) =>

@@ -6,11 +6,11 @@ import { useAutoScroll } from '../hooks'
 import type { ChatMessage } from '../types'
 
 const QUICK_PROMPTS = [
-  'Explain the key concepts in this note',
-  'Summarize into 5 bullet points',
-  'Identify any unclear sections',
-  'Suggest improvements to the structure',
-  'Extract all definitions and formulas',
+  '解释这份笔记的核心概念',
+  '总结为5个要点',
+  '找出不清晰的章节',
+  '对结构提出改进建议',
+  '提取所有定义和公式',
 ]
 
 interface Props {

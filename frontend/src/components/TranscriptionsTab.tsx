@@ -19,8 +19,8 @@ export function TranscriptionsTab({ course, refresh }: { course: Course; refresh
 
   useEffect(() => {
     api.transcriptions().then(all => {
-      const safeCourse = (s: string) => s.replace(/[^\w\u4e00-\u9fff ._-]/g, '_').trim()
-      setList(all.filter((t: Transcription) => safeCourse(t.course) === safeCourse(course.name)))
+      // Filter by course field directly (backend already stores course dir name)
+      setList(all.filter((t: Transcription) => t.course === course.name))
     }).catch(() => setList([]))
   }, [refresh, course.id])
 

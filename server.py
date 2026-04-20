@@ -577,6 +577,7 @@ class NotesRequest(BaseModel):
     course_name: str
     doc_paths: list[str] = []
     transcript: str = ""
+    transcript_name: str = ""  # e.g. "生物学基础_第2讲_" — 用于命名笔记文件
 
 
 async def _stream_notes(req: NotesRequest) -> AsyncGenerator[str, None]:
@@ -606,18 +607,18 @@ async def _stream_notes(req: NotesRequest) -> AsyncGenerator[str, None]:
         cutoff = last_newline if last_newline > limit * 0.7 else int(limit * 0.85)
         return text[:cutoff].rstrip()
 
-    user_content = f"""课程：{req.course_name}
+    # 用 transcript_name（无扩展名）命名笔记文件；无则 fallback
+    note_stem = req.transcript_name or (Path(req.doc_paths[0]).stem if req.doc_paths else "lecture")
+    course_dir = NOTES_DIR / _safe_name(req.course_name)
+    course_dir.mkdir(parents=True, exist_ok=True)
+    out_path = course_dir / f"{note_stem}.md"
 
-【课件】
-{smart_truncate(doc_text, 12000)}
+    user_content = f"""课程：{req.course_name}""" + (
+        f"\n\n【课件】\n{smart_truncate(doc_text, 12000)}" if doc_text else ""
+    ) + f"""
 
 【讲义】
 {smart_truncate(req.transcript, 16000)}"""
-
-    course_dir = NOTES_DIR / _safe_name(req.course_name)
-    course_dir.mkdir(parents=True, exist_ok=True)
-    doc_stem = Path(req.doc_paths[0]).stem if req.doc_paths else "lecture"
-    out_path = course_dir / f"{doc_stem}_notes.md"
 
     full_text: list[str] = []
     try:

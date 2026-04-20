@@ -2,15 +2,28 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { Course } from '../types'
 
+interface BatchItem {
+  video_id: string
+  title: string
+  status: string
+  error?: string
+}
+
 interface Props {
   selected: Course | null
   onSelect: (c: Course) => void
+  batchTaskId: string | null
+  batchItems: BatchItem[]
+  batchDone: number
+  batchTotal: number
+  batchCurrent: string
 }
 
-export function Sidebar({ selected, onSelect }: Props) {
+export function Sidebar({ selected, onSelect, batchTaskId, batchItems, batchDone, batchTotal, batchCurrent }: Props) {
   const [courses, setCourses] = useState<Course[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
+  const [batchExpanded, setBatchExpanded] = useState(true)
 
   useEffect(() => {
     api.courses()
@@ -24,8 +37,11 @@ export function Sidebar({ selected, onSelect }: Props) {
     c.course_code?.toLowerCase().includes(query.toLowerCase())
   )
 
+  const isBatchActive = batchTaskId !== null
+
   return (
     <aside className="flex flex-col w-64 shrink-0 h-screen border-r border-[var(--border)] bg-[var(--surface)]">
+
       {/* Header */}
       <div className="px-5 pt-6 pb-4 border-b border-[var(--border)]">
         <div className="flex items-center gap-2 mb-1">
@@ -87,6 +103,74 @@ export function Sidebar({ selected, onSelect }: Props) {
           )
         })}
       </div>
+
+      {/* Batch progress panel */}
+      {isBatchActive && (
+        <div className="border-t border-[var(--border)] bg-[var(--surface2)]">
+          <button
+            onClick={() => setBatchExpanded(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-2 hover:bg-[var(--surface)] transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-amber font-mono text-xs animate-pulse">◎</span>
+              <span className="font-mono text-xs text-[var(--text)]">
+                批量任务
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs text-amber">
+                {batchDone}/{batchTotal}
+              </span>
+              <span className="font-mono text-xs text-[var(--text-muted)]">
+                {batchExpanded ? '▲' : '▼'}
+              </span>
+            </div>
+          </button>
+
+          {/* Progress bar */}
+          <div className="px-4 pb-1">
+            <div className="h-1 bg-[var(--border)] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-amber rounded-full transition-all duration-500"
+                style={{ width: `${batchTotal > 0 ? (batchDone / batchTotal * 100) : 0}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Item list */}
+          {batchExpanded && (
+            <div className="overflow-y-auto" style={{ maxHeight: '200px' }}>
+              {batchItems.map(item => (
+                <div
+                  key={item.video_id}
+                  className="flex items-center gap-2 px-4 py-1.5 border-t border-[var(--border)]/50"
+                >
+                  <span className="font-mono text-xs shrink-0 w-4 text-center">
+                    {item.status === 'done' ? '✓' :
+                     item.status === 'error' ? '✗' :
+                     item.status === 'transcribing' ? '◎' :
+                     item.status === 'downloading' ? '↓' : '…'}
+                  </span>
+                  <span className={`font-mono text-xs truncate flex-1 min-w-0 ${
+                    item.status === 'done' ? 'text-sage' :
+                    item.status === 'error' ? 'text-rust' :
+                    item.title === batchCurrent ? 'text-amber' :
+                    'text-[var(--text-muted)]'
+                  }`}>
+                    {item.title || item.video_id}
+                  </span>
+                </div>
+              ))}
+              {batchCurrent && (
+                <div className="flex items-center gap-2 px-4 py-1.5 border-t border-[var(--border)]/50">
+                  <span className="font-mono text-xs text-amber animate-pulse">→</span>
+                  <span className="font-mono text-xs text-amber truncate">{batchCurrent}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Footer */}
       <div className="px-4 py-3 border-t border-[var(--border)]">

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { pushToast } from './Toast'
 import type { Course } from '../types'
@@ -21,9 +21,29 @@ function fmtDate(iso: string) {
   }
 }
 
-interface Props { course: Course; onTranscribed: () => void }
+interface BatchItem {
+  video_id: string
+  title: string
+  status: string
+  error?: string
+}
 
-export function VideosTab({ course, onTranscribed }: Props) {
+interface Props {
+  course: Course
+  onTranscribed: () => void
+  batchTaskId: string | null
+  batchItems: BatchItem[]
+  batchDone: number
+  batchTotal: number
+  batchCurrent: string
+  onBatchStart: (args: { task_id: string; items: BatchItem[] }) => void
+}
+
+export function VideosTab({
+  course, onTranscribed,
+  batchTaskId, batchItems, batchDone, batchTotal, batchCurrent,
+  onBatchStart,
+}: Props) {
   const [videos, setVideos] = useState<VideoItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -31,6 +51,11 @@ export function VideosTab({ course, onTranscribed }: Props) {
   const [transcribing, setTranscribing] = useState<Set<string>>(new Set())
   const [downloaded, setDownloaded] = useState<Set<string>>(new Set())
   const [playSelector, setPlaySelector] = useState<{ video: VideoItem; plays: VideoPlay[] } | null>(null)
+
+  // Batch selection
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  const isBatchActive = batchTaskId !== null
 
   useEffect(() => {
     setLoading(true)
@@ -45,7 +70,6 @@ export function VideosTab({ course, onTranscribed }: Props) {
       const downloaded = new Set<string>()
       files.filter((f: any) => f.is_video).forEach((f: any) => {
         downloaded.add(f.name)
-        // 同时注册去掉/加上"_录屏"的变体
         downloaded.add(f.name.replace('_录屏', ''))
         if (!f.name.includes('_录屏')) {
           downloaded.add(f.name.replace('.mp4', '_录屏.mp4'))
@@ -57,34 +81,30 @@ export function VideosTab({ course, onTranscribed }: Props) {
 
   function isDownloaded(v: VideoItem) {
     const title = v.title || ''
-    // 支持两种格式: {标题}.mp4 和 {标题}_录屏.mp4
     const normalized = (s: string) => s.replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, '').toLowerCase()
     const vidKey = normalized(title)
     return [...downloaded].some(n => {
       const downloadedKey = normalized(n)
-      // 完全匹配标准化后的标题
-      return downloadedKey.includes(vidKey) && vidKey.length >= 8
+      return (downloadedKey.includes(vidKey) && vidKey.length >= 8)
       || downloadedKey.replace('_录屏', '').includes(vidKey.replace('_录屏', ''))
     })
   }
 
-  async function download(v: VideoItem) {
-    if (isDownloaded(v)) {
-      pushToast({ type: 'info', message: `已在: ${v.title}` })
-      return
-    }
-    try {
-      const plays = await api.videoPlays(v.id, v.title)
-      if (plays.length <= 1) {
-        // 只有一个片段，直接下载
-        void doDownload(v, -1)
-      } else {
-        // 多个片段，弹出选择器
-        setPlaySelector({ video: v, plays })
-      }
-    } catch {
-      pushToast({ type: 'error', message: '获取视频片段失败' })
-    }
+  function toggleSelect(id: string) {
+    setSelected(prev => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  }
+
+  function selectAll() {
+    setSelected(new Set(videos.filter(v => !isDownloaded(v)).map(v => v.id)))
+  }
+
+  function deselectAll() {
+    setSelected(new Set())
   }
 
   async function doDownload(v: VideoItem, playIndex: number) {
@@ -123,6 +143,23 @@ export function VideosTab({ course, onTranscribed }: Props) {
     } catch {
       pushToast({ type: 'error', message: '下载请求失败' })
       setDownloading(p => { const n = new Set(p); n.delete(v.id); return n })
+    }
+  }
+
+  async function download(v: VideoItem) {
+    if (isDownloaded(v)) {
+      pushToast({ type: 'info', message: `已在: ${v.title}` })
+      return
+    }
+    try {
+      const plays = await api.videoPlays(v.id, v.title)
+      if (plays.length <= 1) {
+        void doDownload(v, -1)
+      } else {
+        setPlaySelector({ video: v, plays })
+      }
+    } catch {
+      pushToast({ type: 'error', message: '获取视频片段失败' })
     }
   }
 
@@ -166,6 +203,36 @@ export function VideosTab({ course, onTranscribed }: Props) {
     }
   }
 
+  // ── Batch transcribe ────────────────────────────────────────────────────────
+
+  async function startBatchTranscribe() {
+    if (selected.size === 0) return
+    const items = videos
+      .filter(v => selected.has(v.id))
+      .map(v => ({
+        course_id: course.id,
+        course_name: course.name,
+        video_id: v.id,
+        title: v.title || '',
+        play_index: -1,
+      }))
+    try {
+      const { task_id } = await api.batchTranscribe(items)
+      const batchItems: BatchItem[] = items.map(i => ({
+        video_id: i.video_id, title: i.title, status: 'pending',
+      }))
+      onBatchStart({ task_id, items: batchItems })
+      setSelected(new Set())
+    } catch (e: unknown) {
+      pushToast({ type: 'error', message: `批量操作启动失败: ${e instanceof Error ? e.message : String(e)}` })
+    }
+  }
+
+  // Map batch items to video id → status for quick lookup
+  const batchStatusMap = Object.fromEntries(
+    batchItems.map(b => [b.video_id, b])
+  )
+
   if (loading) return <ListSkeleton />
   if (error) return (
     <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
@@ -187,20 +254,56 @@ export function VideosTab({ course, onTranscribed }: Props) {
   return (
     <div className="h-full overflow-auto">
       {/* Header */}
-      <div className="sticky top-0 z-10 px-6 py-3 flex items-center gap-3 border-b border-[var(--border)] bg-[var(--bg)]">
+      <div className="sticky top-0 z-10 px-6 py-3 flex items-center gap-3 border-b border-[var(--border)] bg-[var(--bg)] flex-wrap">
         <span className="font-mono text-xs font-bold text-[var(--text)]">{course.name}</span>
         <span className="font-mono text-xs text-[var(--text-muted)]">· {videos.length} 个录屏</span>
         <span className="font-mono text-xs px-2 py-0.5 bg-sage/10 text-sage rounded border border-sage/20">v.sjtu.edu.cn</span>
+
+        {/* Batch controls */}
+        <div className="flex items-center gap-2 ml-auto">
+          {selected.size > 0 && (
+            <span className="font-mono text-xs text-amber">{selected.size} 已选</span>
+          )}
+          <button
+            onClick={selectAll}
+            className="font-mono text-xs px-2.5 py-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] transition-all"
+          >
+            全选
+          </button>
+          {selected.size > 0 && (
+            <>
+              <button
+                onClick={deselectAll}
+                className="font-mono text-xs px-2.5 py-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] transition-all"
+              >
+                取消
+              </button>
+              <button
+                disabled={isBatchActive}
+                onClick={startBatchTranscribe}
+                className="font-mono text-xs px-3 py-1 rounded border border-rust/40 text-rust hover:bg-rust/10 disabled:opacity-40 transition-all"
+              >
+                ↓◎ 批量转录
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* List */}
       <table className="w-full">
         <thead>
           <tr className="border-b border-[var(--border)]">
-            <th className="text-left font-mono text-xs text-[var(--text-muted)] px-6 py-2 w-8">#</th>
-            <th className="text-left font-mono text-xs text-[var(--text-muted)] px-6 py-2">标题 / 上课时间</th>
-            <th className="text-left font-mono text-xs text-[var(--text-muted)] px-6 py-2 w-20 hidden sm:table-cell">时长</th>
-            <th className="text-left font-mono text-xs text-[var(--text-muted)] px-6 py-2 w-48">操作</th>
+            <th className="text-left font-mono text-xs text-[var(--text-muted)] px-6 py-2 w-8">
+              <input type="checkbox" className="accent-amber"
+                checked={selected.size === videos.filter(v => !isDownloaded(v)).length && selected.size > 0}
+                onChange={e => e.target.checked ? selectAll() : deselectAll()}
+              />
+            </th>
+            <th className="text-left font-mono text-xs text-[var(--text-muted)] px-0 py-2 w-8">#</th>
+            <th className="text-left font-mono text-xs text-[var(--text-muted)] px-4 py-2">标题 / 上课时间</th>
+            <th className="text-left font-mono text-xs text-[var(--text-muted)] px-4 py-2 w-20 hidden sm:table-cell">时长</th>
+            <th className="text-left font-mono text-xs text-[var(--text-muted)] px-4 py-2 w-48">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -208,52 +311,96 @@ export function VideosTab({ course, onTranscribed }: Props) {
             const dlBusy = downloading.has(v.id)
             const trBusy = transcribing.has(v.id)
             const isDl = isDownloaded(v)
+            const isSel = selected.has(v.id)
+            const batchInfo = batchStatusMap[v.id]
+            const batchStatus = batchInfo?.status
+
+            // Determine overall row status
+            let rowStatus: 'idle' | 'downloading' | 'transcribing' | 'done' | 'error' = 'idle'
+            if (batchStatus === 'downloading') rowStatus = 'downloading'
+            if (batchStatus === 'transcribing') rowStatus = 'transcribing'
+            if (batchStatus === 'done') rowStatus = 'done'
+            if (batchStatus === 'error') rowStatus = 'error'
+
             return (
               <tr
                 key={v.id}
-                className="border-b border-[var(--border)]/50 hover:bg-[var(--surface2)]/50 group transition-colors animate-fade-in"
+                className={`border-b border-[var(--border)]/50 group transition-colors animate-fade-in ${
+                  isSel ? 'bg-amber/5' : 'hover:bg-[var(--surface2)]/50'
+                }`}
                 style={{ animationDelay: `${i * 30}ms` }}
               >
-                <td className="font-mono text-xs text-[var(--text-muted)] px-6 py-3 align-middle">
+                <td className="px-6 py-3 align-middle">
+                  <input type="checkbox" className="accent-amber"
+                    checked={isSel}
+                    disabled={rowStatus !== 'idle'}
+                    onChange={() => toggleSelect(v.id)}
+                  />
+                </td>
+                <td className="font-mono text-xs text-[var(--text-muted)] px-0 pl-1 py-3 align-middle">
                   {String(i + 1).padStart(2, '0')}
                 </td>
-                <td className="px-6 py-3 align-middle">
+                <td className="px-4 py-3 align-middle">
                   <p className="text-sm text-[var(--text)] leading-snug group-hover:text-amber transition-colors">
                     {v.title || '（无标题）'}
                   </p>
                   <p className="font-mono text-xs text-[var(--text-muted)] mt-0.5">
                     {fmtDate(v.courseBeginTime || '')}
                   </p>
+                  {batchInfo?.error && (
+                    <p className="font-mono text-xs text-rust mt-0.5">{batchInfo.error}</p>
+                  )}
                 </td>
-                <td className="px-6 py-3 align-middle hidden sm:table-cell">
+                <td className="px-4 py-3 align-middle hidden sm:table-cell">
                   <span className="font-mono text-xs text-[var(--text-muted)]">{fmtDur(v.duration)}</span>
                 </td>
-                <td className="px-6 py-3 align-middle">
+                <td className="px-4 py-3 align-middle">
                   <div className="flex gap-1.5 flex-wrap">
-                    <button
-                      disabled={dlBusy || isDl}
-                      onClick={() => download(v)}
-                      className={`font-mono text-xs px-2.5 py-1 rounded border transition-all ${
-                        isDl
-                          ? 'border-sage/30 text-sage/70 cursor-default'
-                          : dlBusy
-                          ? 'border-[var(--border)] text-[var(--text-muted)] cursor-wait'
-                          : 'border-amber/30 text-amber hover:bg-amber/10'
-                      }`}
-                    >
-                      {isDl ? '✓' : dlBusy ? '…' : '↓'}
-                    </button>
-                    <button
-                      disabled={trBusy}
-                      onClick={() => transcribe(v)}
-                      className={`font-mono text-xs px-2.5 py-1 rounded border transition-all ${
-                        trBusy
-                          ? 'border-[var(--border)] text-[var(--text-muted)] cursor-wait'
-                          : 'border-sage/30 text-sage hover:bg-sage/10'
-                      }`}
-                    >
-                      {trBusy ? '⟳' : '◎'}
-                    </button>
+                    {/* Row status indicator */}
+                    {rowStatus === 'downloading' && (
+                      <span className="font-mono text-xs px-2.5 py-1 border border-amber/30 text-amber/70 rounded animate-pulse">↓</span>
+                    )}
+                    {rowStatus === 'transcribing' && (
+                      <span className="font-mono text-xs px-2.5 py-1 border border-sage/30 text-sage/70 rounded animate-pulse">◎</span>
+                    )}
+                    {rowStatus === 'done' && (
+                      <span className="font-mono text-xs px-2.5 py-1 border border-sage/30 text-sage rounded">✓</span>
+                    )}
+                    {rowStatus === 'error' && (
+                      <span className="font-mono text-xs px-2.5 py-1 border border-rust/30 text-rust rounded">✗</span>
+                    )}
+                    {rowStatus === 'idle' && (
+                      <>
+                        {isDl ? (
+                          <span className="font-mono text-xs px-2.5 py-1 border border-sage/30 text-sage/60 rounded">已有</span>
+                        ) : (
+                          <button
+                            disabled={dlBusy}
+                            onClick={() => download(v)}
+                            className={`font-mono text-xs px-2.5 py-1 rounded border transition-all ${
+                              dlBusy
+                                ? 'border-[var(--border)] text-[var(--text-muted)] cursor-wait'
+                                : 'border-amber/30 text-amber hover:bg-amber/10'
+                            }`}
+                          >
+                            {dlBusy ? '…' : '↓'}
+                          </button>
+                        )}
+                        {!isDl && (
+                          <button
+                            disabled={trBusy}
+                            onClick={() => transcribe(v)}
+                            className={`font-mono text-xs px-2.5 py-1 rounded border transition-all ${
+                              trBusy
+                                ? 'border-[var(--border)] text-[var(--text-muted)] cursor-wait'
+                                : 'border-sage/30 text-sage hover:bg-sage/10'
+                            }`}
+                          >
+                            {trBusy ? '⟳' : '◎'}
+                          </button>
+                        )}
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -312,6 +459,7 @@ function ListSkeleton() {
     <div className="p-6 space-y-0">
       {Array.from({ length: 8 }).map((_, i) => (
         <div key={i} className="flex items-center gap-4 py-4 border-b border-[var(--border)]/30">
+          <div className="w-6 h-4 bg-[var(--surface2)] rounded animate-pulse" />
           <div className="w-6 h-4 bg-[var(--surface2)] rounded animate-pulse" />
           <div className="flex-1 h-4 bg-[var(--surface2)] rounded animate-pulse" style={{ width: `${70 - i * 5}%` }} />
           <div className="w-12 h-4 bg-[var(--surface2)] rounded animate-pulse hidden sm:block" />

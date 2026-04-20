@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { api } from './api'
 import { Sidebar } from './components/Sidebar'
 import { FilesTab } from './components/FilesTab'
 import { FileManager } from './components/FileManager'
@@ -23,9 +24,24 @@ export default function App() {
   const [transcriptRefresh, setTranscriptRefresh] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
+  // Batch transcribe state
+  const [batchTaskId, setBatchTaskId] = useState<string | null>(null)
+  const [batchItems, setBatchItems] = useState<any[]>([])
+  const [batchDone, setBatchDone] = useState(0)
+  const [batchTotal, setBatchTotal] = useState(0)
+  const [batchCurrent, setBatchCurrent] = useState('')
+
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
-      <Sidebar selected={course} onSelect={c => { setCourse(c); setTab('files') }} />
+      <Sidebar
+        selected={course}
+        onSelect={c => { setCourse(c); setTab('files') }}
+        batchTaskId={batchTaskId}
+        batchItems={batchItems}
+        batchDone={batchDone}
+        batchTotal={batchTotal}
+        batchCurrent={batchCurrent}
+      />
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top bar */}
@@ -86,6 +102,33 @@ export default function App() {
               key={course.id}
               course={course}
               onTranscribed={() => setTranscriptRefresh(r => r + 1)}
+              batchTaskId={batchTaskId}
+              batchItems={batchItems}
+              batchDone={batchDone}
+              batchTotal={batchTotal}
+              batchCurrent={batchCurrent}
+              onBatchStart={({ task_id, items }) => {
+                setBatchTaskId(task_id)
+                setBatchItems(items)
+                setBatchTotal(items.length)
+                setBatchDone(0)
+                setBatchCurrent('')
+                const poll = setInterval(async () => {
+                  const t: any = await api.task(task_id).catch(() => null)
+                  if (!t) return
+                  if (t.status === 'done' || t.status === 'error') {
+                    clearInterval(poll)
+                    setBatchDone(t.status === 'done' ? (t.total_count ?? t.done_count ?? 0) : (t.done_count ?? 0))
+                    setBatchCurrent('')
+                    if (t.status === 'done') setTranscriptRefresh(r => r + 1)
+                    setTimeout(() => setBatchTaskId(null), 3000)
+                    return
+                  }
+                  setBatchItems(t.items || [])
+                  setBatchDone(t.done_count || 0)
+                  setBatchCurrent(t.current || '')
+                }, 2000)
+              }}
             />
           )}
           {course && tab === 'transcriptions' && <TranscriptionsTab course={course} refresh={transcriptRefresh} />}
