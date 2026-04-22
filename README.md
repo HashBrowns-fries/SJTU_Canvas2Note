@@ -12,7 +12,7 @@
 - **课堂录播下载** — 通过 JAAuthCookie + LTI 认证下载 courses.sjtu.edu.cn 课堂录播，支持断点续传
 - **直播实时转写** — 从 Canvas External Tool（课堂视频旧版，LTI tool ID 9487）获取直播列表和 FLV 流地址（HD/SD 双轨，auth_key 签名）；实时转写管道：FLV 流 → ffmpeg 16kHz PCM → FunASR SenseVoice（RTF ~0.004，约 25 倍实时），每 10 秒输出一段文本，延迟约 10 秒；支持直播中和结束后抓取；完整认证流程：JAAuthCookie → Canvas OIDC 登录 → GET external_tool 表单 → POST LTI launch → 调用直播 API。
 - **语音转写** — 支持四种 ASR 引擎：交大 AI 转录站（translate.sjtu.edu.cn）、本地 faster-whisper、Qwen3-ASR-1.7B（vLLM 加速）、FunASR SenseVoice（直播实时转写），可按课程批量转写
-- **视频理解** — 使用 SmolVLM2-2.2B-Instruct 直接理解视频内容，ffmpeg 均匀抽帧后逐帧推理，输出幻灯片文字、图表、公式的中文描述；支持教师摄像与屏幕录屏双片段下载
+- **PPT 幻灯片分析** — 从 Canvas 下载课程 PPT（PDF 格式），解压为图片，逐张输入 Qwen3-VL-8B（vLLM 推理），提取幻灯片文字、图表、公式内容
 - **AI 笔记生成** — 将课件文字、PPT 幻灯片 VLM 描述、录屏截图与讲义转录融合，生成结构清晰的 Markdown 笔记；笔记按转录文件名命名，不覆盖历史文件；PPT 幻灯片通过 Qwen3-VL-8B 分析，VLM 进度实时显示在生成面板。
 - **LLM 对话** — 在笔记页面右侧与 AI 助手对话，支持 Markdown 渲染，历史记录按笔记自动保存；侧边栏展示所有对话历史，支持按笔记名称过滤
 - **批量工作流** — 一键完成 下载 → 自动转录 → 删除视频，进度在侧边栏实时跟踪（转录状态透传自 ASR 引擎）
@@ -34,7 +34,7 @@ Canvas2note/
 ├── notes/               # 笔记生成
 │   └── generator.py
 ├── llm_client.py        # 统一 LLM 调用 (OpenAI 兼容)
-├── vlm_client.py        # Qwen3-VL-8B 幻灯片分析 (vLLM) + SmolVLM2 视频帧分析
+├── vlm_client.py        # Qwen3-VL-8B PPT 幻灯片分析 (vLLM)
 ├── pipeline.py          # 命令行全流程
 ├── cli.py               # Agent CLI（所有操作的 JSON 接口）
 ├── server.py            # FastAPI 后端（所有 API + SSE 流式）
@@ -129,23 +129,12 @@ python cli.py live-transcribe --course-id 89343 --live-id "$LIVE_ID" --duration 
 python cli.py list-transcripts --course "现代汉语（2）"
 python cli.py get-transcript --name "现代汉语（2）/现代汉语(2)(第1讲)"
 
-# ── 视频截图分析（SmolVLM2，需 GPU）──────────────────────────────
-# 每 60 秒抽一帧，最多 16 帧，输出幻灯片文字/图表/公式描述
-python cli.py analyze-frames --video /data/lecture.mp4 --interval 60 --max-frames 16
-
 # ── 笔记生成 ─────────────────────────────────────────────────────
 # 转写文本 + 课件 PDF → AI 生成 Markdown 笔记
 python cli.py generate-notes --course "现代汉语（2）" \
     --doc data/downloads/现代汉语（2）/课件.pdf \
     --transcript-text "$(python cli.py get-transcript --name '现代汉语（2）/现代汉语(2)(第1讲)' | jq -r .text)" \
     --transcript-name "现代汉语(2)(第1讲)" \
-    -o data/notes/现代汉语（2）/现代汉语(2)(第1讲).md
-
-# 截图描述可作为额外上下文传入
-python cli.py generate-notes --course "现代汉语（2）" \
-    --transcript-text "$(cat data/audio/现代汉语（2）/现代汉语(2)(第1讲).txt)" \
-    --transcript-name "现代汉语(2)(第1讲)" \
-    --frame-descriptions "$(python cli.py analyze-frames --video /data/lecture.mp4 | jq -r .description)" \
     -o data/notes/现代汉语（2）/现代汉语(2)(第1讲).md
 
 python cli.py list-notes --course "现代汉语（2）"
@@ -177,39 +166,27 @@ python cli.py settings set --key asr_model --value "base"
 
 ## VLM 视觉理解
 
-- **视频帧分析（SmolVLM2）** — ffmpeg 均匀抽帧（默认 16 帧）→ 每帧 SmolVLM2-2.2B 推理 → 合并描述；约 4.5 秒/帧（GPU: cuda:1, bfloat16, SDPA），GPU 显存 4.5GB；自动识别视频片段：教师摄像 + 屏幕录屏，点击下载时弹出选择框；与 ASR 互补：ASR 转录口头讲解，VLM 理解幻灯片画面，两者结合效果最佳。
-
-- **PPT 幻灯片分析（Qwen3-VL-8B）** — 笔记生成时可选 PPT 幻灯片作为输入，`vlm_client.describe_frame()` 逐张分析幻灯片图片，通过 SSE status 事件实时推送进度，分析结果以 `【课件（PPT 幻灯片）】` 区块传入 LLM 提示词；需 vLLM 运行 Qwen3-VL-8B，服务地址通过 `VLLM_BASE_URL` 环境变量配置。
+- **PPT 幻灯片分析（Qwen3-VL-8B）** — 从 Canvas 下载课程 PPT（PDF 格式）解压为图片集，笔记生成时可选，vlm_client 逐张输入 Qwen3-VL-8B（vLLM），提取幻灯片文字、图表、公式内容；SSE 实时推送分析进度；需 vLLM 运行 Qwen3-VL-8B，服务地址通过 `VLLM_BASE_URL` 环境变量配置。
 
 ## 工作流程
 
 ```
-Canvas 课件下载         录播下载              直播实时转写
-      │                     │                       │
-      ▼                     ▼                       ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│  PDF / PPTX     │  │  视频文件        │  │  FLV 直播流     │
-│  → 文字提取     │  │  → ASR 转写      │  │  → ffmpeg PCM  │
-│  (doc_parser)   │  │  translate /     │  │  → FunASR      │
-│                 │  │  Whisper / Qwen3 │  │  → 实时文本     │
-└────────┬────────┘  └────────┬────────┘  └─────────────────┘
-         │                     │
-         │            ┌─────┴──────┐
-         │            │ SmolVLM2   │
-         │            │ 截图分析    │
-         │            └─────┬──────┘
-         ▼                   ▼
-   【课件】文字        【录播截图描述】
-         │                   │
-         │            【讲义】转录
-         │                   │
-         └────────┬───────────┘
-                  ▼
-         ┌─────────────────┐
-         │  LLM 融合整理    │
-         │  → Markdown 笔记 │
-         │  → 笔记对话      │
-         └─────────────────┘
+Canvas 课件/PPT下载                            录播下载              直播实时转写
+      │                                         │                       │
+      ▼                                         ▼                       ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│  PDF            │  │  PPT 幻灯片图片  │  │  视频文件        │  │  FLV 直播流     │
+│  → 文字提取     │  │  → VLM 分析     │  │  → ASR 转写     │  │  → ffmpeg PCM  │
+│  (doc_parser)   │  │  (Qwen3-VL-8B) │  │  translate /    │  │  → FunASR      │
+└────────┬────────┘  └────────┬────────┘  └────────┬────────┘  └─────────────────┘
+         │                     │                     │
+         └─────────────────────┴─────────────────────┘
+                              ▼
+                     ┌─────────────────┐
+                     │  LLM 融合整理    │
+                     │  → Markdown 笔记 │
+                     │  → 笔记对话      │
+                     └─────────────────┘
 ```
 
 ## 技术栈
@@ -217,7 +194,7 @@ Canvas 课件下载         录播下载              直播实时转写
 - **后端**：FastAPI + Uvicorn（SSE 流式响应）
 - **前端**：React + Vite + Tailwind CSS
 - **ASR**：交大 AI 转录站 / faster-whisper / Qwen3-ASR-1.7B / FunASR SenseVoice / OpenAI 兼容 API
-- **VLM**：HuggingFace SmolVLM2-2.2B（视频帧分析）+ Qwen3-VL-8B vLLM（PPT 幻灯片分析）
+- **VLM**：Qwen3-VL-8B vLLM（PPT 幻灯片分析）
 - **LLM**：OpenAI 兼容 API（DeepSeek / Ollama / SiliconFlow 等）
 - **文档解析**：`pypdf` / `python-pptx` / `python-docx`
 - **依赖管理**：`uv`（`uv sync` 同步，`uv.lock` 已提交保证版本一致）

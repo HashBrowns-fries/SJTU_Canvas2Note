@@ -13,7 +13,7 @@
 ## 技术栈
 
 - **ASR**：交大 AI 转录站（translate.sjtu.edu.cn）/ faster-whisper / Qwen3-ASR-1.7B（vLLM）/ FunASR SenseVoice（直播实时转写）
-- **VLM**：HuggingFace SmolVLM2-2.2B（视频帧分析）+ Qwen3-VL-8B vLLM（PPT 幻灯片分析）
+- **VLM**：Qwen3-VL-8B vLLM（PPT 幻灯片分析）
 - **LLM**：OpenAI 兼容 API（DeepSeek / Ollama / SiliconFlow 等）
 - **依赖管理**：`uv`（`uv sync` 同步，`uv.lock` 已提交保证版本一致）
 

@@ -16,8 +16,7 @@ All notable changes to this project will be documented in this file.
 - **视频双片段下载** — `/api/video/plays` 支持 `course_id` 参数，正确调用视频平台 Token；前端点击视频弹出教师摄像/屏幕录屏选择框。
 - **Canvas 文件目录结构保留** — 下载课程文件时保留 Canvas 原生子目录（如 `course files/阅读文本/`），`download_file()` 新增 `get_folder_path()` 解析文件夹路径。
 - **多选转录文本** — NotesTab GenPanel 转录选择从单选下拉框改为多选 Checkbox，后端支持同时传入多个 transcript 路径并合并内容生成笔记。
-- **Agent CLI** — `cli.py` 提供完整的 JSON CLI 接口，支持课程/文件/视频/转写/截图分析/笔记/对话/设置的所有操作，流式命令实时输出到 stderr。
-- **SmolVLM2 截图分析** — `vlm_client.py` 使用 HuggingFace `SmolVLM2-2.2B-Instruct` 分析录屏画面，ffmpeg 抽帧后逐帧推理（约 4.5 秒/帧，GPU 4.5GB），输出幻灯片内容描述，描述文字可传入笔记生成流程。
+- **Agent CLI** — `cli.py` 提供完整的 JSON CLI 接口，支持课程/文件/视频/转写/笔记/对话/设置的所有操作，流式命令实时输出到 stderr。
 - **Chat history persistence** — Chat history is now saved per note to `data/chats/`. Switching notes loads the previous conversation automatically.
 - **LLM Markdown rendering** — LLM responses in the chat panel are rendered as proper Markdown (react-markdown + remark-gfm).
 - **Batch transcribe workflow** — Download → transcribe → delete video all in one go. Progress shown inline in Videos tab and sidebar.
