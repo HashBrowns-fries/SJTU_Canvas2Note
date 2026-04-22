@@ -28,6 +28,12 @@ async function put<T>(path: string, body: unknown): Promise<T> {
   return r.json()
 }
 
+async function del<T>(path: string): Promise<T> {
+  const r = await fetch(BASE + path, { method: 'DELETE' })
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+  return r.json()
+}
+
 export interface VideoItem {
   id: string
   title: string
@@ -50,6 +56,15 @@ export interface PPTSlide {
   url: string
   sec: string
 }
+export interface PptSlideSet {
+  course: string
+  title: string
+  dir: string
+  count: number
+  images: string[]
+  pdf: string
+}
+
 
 export const api = {
   // ── File Manager ──────────────────────────────────────────
@@ -70,11 +85,14 @@ export const api = {
 
   transcribe:        (video_path: string, course_name: string) => post<{ task_id: string }>('/transcribe', { video_path, course_name }),
   transcriptions:    (): Promise<Transcription[]>    => get('/transcriptions'),
-  transcription:     (name: string): Promise<{ name: string; text: string }> => get(`/transcriptions/${name}`),
+  transcription:     (name: string): Promise<{ name: string; text: string }> => get(`/transcription?name=${encodeURIComponent(name)}`),
 
   notes:             (): Promise<Note[]>             => get('/notes'),
   note:              (course: string, filename: string): Promise<{ content: string }> => get(`/notes/${course}/${filename}`),
   saveNote:          (course: string, filename: string, content: string) => put(`/notes/${course}/${filename}`, { content }),
+  deleteNote:        (course: string, filename: string) => del<{ ok: boolean }>(`/notes/${course}/${filename}`),
+  renameNote:        (course: string, oldFilename: string, newFilename: string) =>
+                       post<{ ok: boolean; filename: string }>('/notes/rename', { course, old_filename: oldFilename, new_filename: newFilename }),
 
   task:              (id: string): Promise<Task>     => get(`/tasks/${id}`),
   tasks:             (): Promise<Task[]>             => get('/tasks'),
@@ -84,20 +102,25 @@ export const api = {
   videoList:         (course_id: number): Promise<VideoItem[]> => get(`/video/courses/${course_id}/videos`),
   videoDownload:      (body: { course_id: number; course_name: string; video_id: string; title: string; play_index?: number }) =>
                        post<{ task_id: string }>('/video/download', body),
-  videoPlays:         (video_id: string, title?: string): Promise<VideoPlay[]> => get(`/video/plays?video_id=${encodeURIComponent(video_id)}${title ? `&title=${encodeURIComponent(title)}` : ''}`),
+  videoPlays:         (video_id: string, course_id: number, title?: string): Promise<VideoPlay[]> =>
+                       get(`/video/plays?video_id=${encodeURIComponent(video_id)}${course_id != null ? `&course_id=${course_id}` : ''}${title ? `&title=${encodeURIComponent(title)}` : ''}`),
   batchTranscribe:    (items: { course_id: number; course_name: string; video_id: string; title: string; play_index: number }[]) =>
                        post<{ task_id: string }>('/batch/transcribe', { items, delete_video: true }),
   pptList:           (cour_id: string, course_id: number): Promise<PPTSlide[]> =>
                        get(`/video/ppt?cour_id=${cour_id}&course_id=${course_id}`),
-  pptDownload:        (body: { course_name: string; video_title: string; cour_id: string }) =>
+  pptDownload:        (body: { course_name: string; video_title: string; cour_id: string; course_id: number }) =>
                        post<{ task_id: string }>('/video/ppt/download', body),
+  pptSlidesList:     (course_name?: string): Promise<PptSlideSet[]> =>
+                       get('/slides' + (course_name ? `?course_name=${encodeURIComponent(course_name)}` : '')),
+
 }
 
-/** SSE streaming helper — calls onDelta for each chunk, returns full text */
+/** SSE streaming helper — calls onDelta for each chunk, onStatus for progress, returns full text */
 export async function streamSSE(
   path: string,
   body: unknown,
   onDelta: (d: string) => void,
+  onStatus?: (s: string) => void,
 ): Promise<void> {
   const r = await fetch(BASE + path, {
     method: 'POST',
@@ -119,6 +142,7 @@ export async function streamSSE(
         try {
           const obj = JSON.parse(line.slice(6))
           if (obj.delta) onDelta(obj.delta)
+          else if (obj.status && onStatus) onStatus(obj.status)
         } catch { /* skip */ }
       }
     }

@@ -23,6 +23,8 @@ from config import (
     LLM_MODEL    as DEFAULT_LLM_MODEL,
 )
 
+SLIDES_DIR = DOWNLOAD_DIR  # PPT slide images live under data/downloads/<course>/<title>_ppt_imgs/
+
 app = FastAPI(title="Canvas2note")
 
 # Settings persistence
@@ -38,6 +40,7 @@ DEFAULTS = {
     "asr_model":       "iic/SenseVoiceSmall",
     "asr_engine":      "funasr",  # faster-whisper / funasr / api
     "asr_device":      "cuda",   # cuda / cpu（仅 faster-whisper 模式有效）
+    "asr_language":    "German",   # Qwen3-ASR / faster-whisper 语言：German / Chinese / English / auto 等
     "asr_api_base":    "",
     "asr_api_key":     "",
     "asr_api_model":   "whisper-1",
@@ -234,7 +237,7 @@ def preview_file(path: str):
 
 
 @app.get("/api/files/download/{path:path}")
-def download_file(path: str):
+def download_file(path: str, background_tasks: BackgroundTasks):
     target = DATA_ROOT / path
     try:
         target.resolve().relative_to(DATA_ROOT.resolve())
@@ -255,7 +258,7 @@ def start_download(body: dict):
     tid = make_task(kind)
     tasks[tid].update({"course_id": body.get("course_id"), "course_name": body.get("course_name"), "item": body.get("item")})
     if kind == "file":
-        BackgroundTasks().add_task(_do_download, tid, body)
+        background_tasks.add_task(_do_download, tid, body)
     return {"task_id": tid}
 
 
@@ -281,12 +284,12 @@ def _do_download(tid: str, body: dict):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/video/login")
-def video_login():
+def video_login(background_tasks: BackgroundTasks):
     from canvas.video_client import VideoClient
     cfg = _cfg()
     tid = make_task("video_login")
     tasks[tid]["status"] = "pending"
-    BackgroundTasks().add_task(_do_video_login, tid, cfg["ja_auth_cookie"])
+    background_tasks.add_task(_do_video_login, tid, cfg["ja_auth_cookie"])
     return {"task_id": tid}
 
 
@@ -307,11 +310,11 @@ def list_video_videos(course_id: int):
     from canvas.video_client import VideoClient
     cfg = _cfg()
     vc = VideoClient(ja_auth_cookie=cfg.get("ja_auth_cookie", ""))
-    return asyncio.run(vc.list_course_videos(course_id))
+    return vc.list_course_videos(course_id)
 
 
 @app.post("/api/video/download")
-def start_video_download(body: dict):
+def start_video_download(body: dict, background_tasks: BackgroundTasks):
     from canvas.video_client import VideoClient
     import asyncio
     cfg = _cfg()
@@ -323,7 +326,7 @@ def start_video_download(body: dict):
         "title": body.get("title"),
         "play_index": body.get("play_index"),
     })
-    BackgroundTasks().add_task(_do_video_download, tid, body, cfg["ja_auth_cookie"])
+    background_tasks.add_task(_do_video_download, tid, body, cfg["ja_auth_cookie"])
     return {"task_id": tid}
 
 
@@ -366,12 +369,12 @@ class BatchTranscribeRequest(BaseModel):
 
 
 @app.post("/api/batch/transcribe")
-def batch_transcribe(req: BatchTranscribeRequest):
+def batch_transcribe(req: BatchTranscribeRequest, background_tasks: BackgroundTasks):
     tid = make_task("batch")
     # Normalize Pydantic models to plain dicts
     items = [x.model_dump() if hasattr(x, "model_dump") else x for x in req.items]
     tasks[tid].update({"items": items, "done_count": 0, "total_count": len(items), "current": "", "status": "running"})
-    BackgroundTasks().add_task(_do_batch_transcribe, tid, items, req.delete_video)
+    background_tasks.add_task(_do_batch_transcribe, tid, items, req.delete_video)
     return {"task_id": tid}
 
 
@@ -427,35 +430,35 @@ def list_ppt(cour_id: str, course_id: int):
     import asyncio
     cfg = _cfg()
     vc = VideoClient(ja_auth_cookie=cfg.get("ja_auth_cookie", ""))
-    return asyncio.run(vc.list_ppt_slides(cour_id, course_id))
+    return vc.list_ppt_slides(cour_id, course_id)
 
 
 @app.post("/api/video/ppt/download")
-def download_ppt(body: dict):
+def download_ppt(body: dict, background_tasks: BackgroundTasks):
     from canvas.video_client import VideoClient
     import asyncio
     cfg = _cfg()
     tid = make_task("ppt")
     tasks[tid]["status"] = "running"
-    BackgroundTasks().add_task(_do_ppt_download, tid, body, cfg["ja_auth_cookie"])
+    background_tasks.add_task(_do_ppt_download, tid, body, cfg["ja_auth_cookie"])
     return {"task_id": tid}
 
 
 def _do_ppt_download(tid: str, body: dict, cookie: str):
-    import asyncio
-    async def _run():
-        from canvas.video_client import VideoClient
-        cfg = _cfg()
-        vc = VideoClient(ja_auth_cookie=cookie)
-        await vc.login()
-        course_name = body["course_name"]
-        video_title = body["video_title"]
-        cour_id = body["cour_id"]
-        out_dir = DOWNLOAD_DIR / course_name
-        out_dir.mkdir(parents=True, exist_ok=True)
-        await vc.download_ppt(cour_id, video_title, str(out_dir))
-        tasks[tid]["status"] = "done"
-    asyncio.run(_run())
+    from canvas.video_client import VideoClient
+    cfg = _cfg()
+    vc = VideoClient(ja_auth_cookie=cookie)
+    vc.login(cookie)
+    course_name = body["course_name"]
+    video_title = body["video_title"]
+    cour_id = body["cour_id"]
+    course_id = int(body.get("course_id", 0))
+    out_dir = DOWNLOAD_DIR / course_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if course_id:
+        vc.bind_canvas_course(course_id)
+    vc.download_ppt(cour_id, video_title, str(out_dir))
+    tasks[tid]["status"] = "done"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -463,7 +466,7 @@ def _do_ppt_download(tid: str, body: dict, cookie: str):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/api/transcribe")
-def start_transcribe(body: dict):
+def start_transcribe(body: dict, background_tasks: BackgroundTasks):
     from asr.transcriber import transcribe_video
     video_path = body.get("video_path", "")
     course_name = body.get("course_name", "")
@@ -472,7 +475,7 @@ def start_transcribe(body: dict):
     tid = make_task("transcribe")
     tasks[tid]["course_name"] = course_name
     tasks[tid]["status"] = "running"
-    BackgroundTasks().add_task(_do_transcribe, tid, video_path, course_name)
+    background_tasks.add_task(_do_transcribe, tid, video_path, course_name)
     return {"task_id": tid}
 
 
@@ -519,9 +522,51 @@ def list_transcriptions():
                     "name": course_dir.name + "/" + f.stem,
                     "path": "data/audio/" + f"{course_dir.name}/{f.stem}",
                     "size": f.stat().st_size,
-                    "course": course_dir.name,
+"course": course_dir.name,
                 })
     return result
+
+
+@app.get("/api/slides")
+def list_slides(course_name: str = ""):
+    """列出已下载的 PPT 幻灯片（来自各课程的 _ppt_imgs 目录）"""
+    result = []
+    if course_name:
+        dirs = [DOWNLOAD_DIR / course_name]
+    else:
+        dirs = [d for d in DOWNLOAD_DIR.iterdir() if d.is_dir()]
+    for course_dir in sorted(dirs, key=lambda d: d.name):
+        ppt_dirs = [d for d in course_dir.iterdir() if d.is_dir() and d.name.endswith("_ppt_imgs")]
+        for ppt_dir in sorted(ppt_dirs, key=lambda d: d.name):
+            imgs = sorted(ppt_dir.glob("*.jpg")) + sorted(ppt_dir.glob("*.png")) + sorted(ppt_dir.glob("*.webp"))
+            if imgs:
+                result.append({
+                    "course":   course_dir.name,
+                    "title":    ppt_dir.name.replace("_ppt_imgs", ""),
+                    "dir":      str(ppt_dir),
+                    "count":    len(imgs),
+                    "images":   [f.name for f in imgs],
+                    "pdf":      str(course_dir / (ppt_dir.name.replace("_ppt_imgs", "") + ".pdf")),
+                })
+    return result
+
+
+@app.get("/api/slides/{course_name}/{title}/{filename}")
+def serve_slide(course_name: str, title: str, filename: str):
+    """提供单张幻灯片图片访问（URL: /api/slides/<course>/<title>/<img>.jpg）"""
+    slide_dir = DOWNLOAD_DIR / course_name / (title + "_ppt_imgs")
+    target = slide_dir / filename
+    if not target.exists() or not target.is_file():
+        raise HTTPException(404, "Slide not found")
+    try:
+        target.resolve().relative_to(DOWNLOAD_DIR.resolve())
+    except ValueError:
+        raise HTTPException(403, "Access denied")
+    import mimetypes
+    ext = filename.rsplit(".", 1)[-1].lower()
+    mt = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(ext, "application/octet-stream")
+    from fastapi.responses import FileResponse
+    return FileResponse(target, media_type=mt)
 
 
 @app.get("/api/transcription")
@@ -548,15 +593,18 @@ class NotesRequest(BaseModel):
     doc_paths: list[str] = []
     transcript: str = ""
     transcript_name: str = ""
+    slide_dirs: list[str] = []
 
 
 async def _stream_notes(req: NotesRequest) -> AsyncGenerator[str, None]:
     from notes.generator import SYSTEM_PROMPT
     from parser.doc_parser import parse_document
     from llm_client import llm_stream
+    import vlm_client
 
     cfg = _cfg()
 
+    # Parse documents
     doc_text_parts = []
     for i, dp in enumerate(req.doc_paths):
         try:
@@ -568,6 +616,36 @@ async def _stream_notes(req: NotesRequest) -> AsyncGenerator[str, None]:
 
     doc_text = "\n\n".join(doc_text_parts)
 
+    # Parse PPT slides with VLM
+    note_stem = req.transcript_name or (Path(req.doc_paths[0]).stem if req.doc_paths else "lecture")
+    course_dir = NOTES_DIR / _safe_name(req.course_name)
+    course_dir.mkdir(parents=True, exist_ok=True)
+
+    slide_text_parts = []
+    for i, slide_dir in enumerate(req.slide_dirs):
+        slide_path = Path(slide_dir)
+        if not slide_path.is_dir():
+            continue
+        imgs = sorted(slide_path.glob("*.jpg")) + sorted(slide_path.glob("*.png")) + sorted(slide_path.glob("*.webp"))
+        if not imgs:
+            continue
+        yield f"data: {json.dumps({'status': f'分析幻灯片 {i+1}/{len(req.slide_dirs)}: {slide_path.name} ({len(imgs)}张)'})}\n\n"
+        slide_desc_lines = [f"=== {slide_path.name} ==="]
+        for j, img in enumerate(imgs):
+            try:
+                desc = vlm_client.describe_frame(img, "请提取所有文字、公式、图表、代码等内容。简洁描述。")
+                slide_desc_lines.append(f"[第{j+1}页] {desc}")
+            except Exception as e:
+                slide_desc_lines.append(f"[第{j+1}页] (解析失败: {e})")
+        slide_text_parts.append("\n".join(slide_desc_lines))
+
+    slide_text = "\n\n".join(slide_text_parts)
+
+    # Save VLM slide analysis to MD file alongside the note
+    if slide_text:
+        slides_md_path = course_dir / f"{note_stem}_slides.md"
+        slides_md_path.write_text(slide_text, encoding="utf-8")
+
     def smart_truncate(text: str, limit: int) -> str:
         if len(text) <= limit:
             return text
@@ -576,17 +654,16 @@ async def _stream_notes(req: NotesRequest) -> AsyncGenerator[str, None]:
         cutoff = last_newline if last_newline > limit * 0.7 else int(limit * 0.85)
         return text[:cutoff].rstrip()
 
-    note_stem = req.transcript_name or (Path(req.doc_paths[0]).stem if req.doc_paths else "lecture")
-    course_dir = NOTES_DIR / _safe_name(req.course_name)
-    course_dir.mkdir(parents=True, exist_ok=True)
     out_path = course_dir / f"{note_stem}.md"
 
     user_content = f"""课程：{req.course_name}""" + (
-        f"\n\n【课件】\n{smart_truncate(doc_text, 12000)}" if doc_text else ""
+        f"\n\n【课件（文档）】\n{smart_truncate(doc_text, 8000)}" if doc_text else ""
+    ) + (
+        f"\n\n【课件（PPT 幻灯片）】\n{smart_truncate(slide_text, 8000)}" if slide_text else ""
     ) + f"""
 
 【讲义】
-{smart_truncate(req.transcript, 16000)}"""
+{smart_truncate(req.transcript, 12000)}"""
 
     full_text: list[str] = []
     try:
@@ -629,6 +706,8 @@ def list_notes():
     for course_dir in NOTES_DIR.iterdir():
         if course_dir.is_dir():
             for f in course_dir.glob("*.md"):
+                if '_slides' in f.name.lower() or f.name.endswith('.txt'):
+                    continue
                 result.append({
                     "filename": f.name,
                     "stem": f.stem,

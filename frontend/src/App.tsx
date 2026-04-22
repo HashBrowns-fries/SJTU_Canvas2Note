@@ -50,8 +50,8 @@ export default function App() {
             <>
               <div className="flex items-center mr-6 py-3 border-r border-[var(--border)] pr-6">
                 <div>
-                  <p className="text-sm font-medium text-[var(--text)] leading-tight">{course.name}</p>
-                  <p className="font-mono text-xs text-[var(--text-muted)]">{course.course_code} · id {course.id}</p>
+                  <p className="text-sm font-medium text-[var(--ink)] leading-tight">{course.name}</p>
+                  <p className="font-mono text-xs text-[var(--muted)]">{course.course_code} · id {course.id}</p>
                 </div>
               </div>
 
@@ -61,10 +61,10 @@ export default function App() {
                   <button
                     key={t.id}
                     onClick={() => setTab(t.id)}
-                    className={`px-5 h-full font-mono text-xs tracking-wider flex items-center gap-2 border-b-2 transition-all ${
+                    className={`px-5 h-full font-mono text-xs tracking-wider flex items-center gap-2 border-b-[2px] transition-all ${
                       tab === t.id
-                        ? 'border-amber text-amber bg-amber/5'
-                        : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--border)]'
+                        ? 'border-[var(--green)] text-[var(--green)] bg-[var(--green-bg)]'
+                        : 'border-transparent text-[var(--muted)] hover:text-[var(--ink)] hover:border-[var(--border2)]'
                     }`}
                   >
                     <span>{t.glyph}</span>
@@ -75,7 +75,7 @@ export default function App() {
             </>
           ) : (
             <div className="flex items-center py-3">
-              <p className="font-mono text-xs text-[var(--text-muted)]">
+              <p className="font-mono text-xs text-[var(--muted)]">
                 ← select a course to begin
               </p>
             </div>
@@ -84,7 +84,7 @@ export default function App() {
           {/* Settings button */}
           <button
             onClick={() => setSettingsOpen(true)}
-            className="ml-auto flex items-center gap-2 px-4 h-full font-mono text-xs text-[var(--text-muted)] hover:text-amber border-l border-[var(--border)] transition-colors"
+            className="ml-auto flex items-center gap-2 px-4 h-full font-mono text-xs text-[var(--muted)] hover:text-[var(--green)] border-l border-[var(--border)] transition-colors"
             title="Settings"
           >
             <span>◎</span>
@@ -145,32 +145,32 @@ export default function App() {
 function Welcome({ onSettings }: { onSettings: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-6 select-none">
-      {/* Decorative grid */}
+      {/* Decorative rings */}
       <div className="relative">
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-32 h-32 rounded-full border border-amber/10 animate-pulse" />
-          <div className="absolute w-20 h-20 rounded-full border border-amber/20" />
+          <div className="w-32 h-32 rounded-full border border-[var(--green)]/10 animate-pulse" />
+          <div className="absolute w-20 h-20 rounded-full border border-[var(--moss)]/20" />
         </div>
-        <span className="relative text-6xl text-amber opacity-60">◈</span>
+        <span className="relative text-6xl text-[var(--moss)] opacity-50">◈</span>
       </div>
 
-      <div className="text-center space-y-2">
-        <h1 className="font-mono text-xl font-bold text-amber tracking-widest">CANVAS2NOTE</h1>
-        <p className="font-mono text-sm text-[var(--text-muted)]">
+      <div className="text-center space-y-1.5">
+        <h1 className="font-mono font-semibold text-[var(--ink)] tracking-[0.25em] text-base uppercase">Canvas2Note</h1>
+        <p className="font-mono text-xs text-[var(--muted)] tracking-widest">
           download · transcribe · generate · chat
         </p>
       </div>
 
-      <div className="font-mono text-xs text-[var(--text-muted)] space-y-1 text-center">
+      <div className="font-mono text-xs text-[var(--faint)] space-y-1 text-center">
         <p>Select a course from the sidebar</p>
-        <p className="text-[var(--border)]">──────────────────────</p>
-        <p>Files  ·  Videos  ·  ASR  ·  LLM Notes</p>
+        <p className="text-[var(--border)] tracking-widest">────────────────</p>
+        <p>Files · Videos · ASR · LLM Notes</p>
       </div>
 
       {/* Quick setup hint */}
       <button
         onClick={onSettings}
-        className="mt-2 font-mono text-xs px-4 py-2 rounded border border-amber/20 text-amber/80 hover:border-amber/40 hover:text-amber transition-all"
+        className="mt-2 font-mono text-xs px-4 py-2 rounded-lg border border-[var(--green)]/20 text-[var(--moss)] hover:border-[var(--green)]/40 hover:text-[var(--green)] transition-all"
       >
         ◎ configure API keys
       </button>

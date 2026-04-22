@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 
 interface Settings {
-  canvas_base_url: string
-  canvas_token:    string
-  ja_auth_cookie:  string
-  llm_base_url:    string
-  llm_api_key:     string
-  llm_model:       string
-  asr_model:       string
-  asr_engine:      string   // "faster-whisper" | "funasr" | "api"
-  asr_device:      string   // "cuda" | "cpu"
-  asr_api_base:    string
-  asr_api_key:     string
-  asr_api_model:   string
+  canvas_base_url:    string
+  canvas_token:       string
+  ja_auth_cookie:     string
+  ja_session_cookie:  string   // translate.sjtu.edu.cn Cookie
+  llm_base_url:       string
+  llm_api_key:        string
+  llm_model:          string
+  asr_model:          string
+  asr_engine:         string
+  asr_device:         string
+  asr_api_base:       string
+  asr_api_key:        string
+  asr_api_model:      string
 }
 
 interface Props { onClose: () => void }
@@ -27,8 +28,8 @@ const LLM_PRESETS = [
 ]
 
 const ASR_ENGINE_PRESETS = [
+  { label: '🎓 交大转录站',     value: 'translate' },
   { label: '⚡ faster-whisper',  value: 'faster-whisper' },
-  { label: '🔊 FunASR',           value: 'funasr' },
   { label: '☁️  API',             value: 'api' },
 ]
 
@@ -37,13 +38,6 @@ const ASR_WHISPER_PRESETS = [
   { label: 'small   (244M)',   value: 'small' },
   { label: 'medium  (769M)',   value: 'medium' },
   { label: 'large-v3 (1.5B)',  value: 'large-v3' },
-]
-
-const ASR_FUNASR_PRESETS = [
-  { label: 'SenseVoiceSmall',   value: 'iic/SenseVoiceSmall' },
-  { label: 'Fun-ASR-Nano',      value: 'FunAudioLLM/Fun-ASR-Nano-2512' },
-  { label: 'Paraformer-zh',     value: 'paraformer-zh' },
-  { label: 'Paraformer-en',     value: 'paraformer-en' },
 ]
 
 const ASR_API_PRESETS = [
@@ -58,12 +52,13 @@ export function SettingsModal({ onClose }: Props) {
   const [settings, setSettings] = useState<Settings>({
     canvas_base_url: 'https://oc.sjtu.edu.cn',
     canvas_token:    '',
-    ja_auth_cookie:      '',
+    ja_auth_cookie:     '',
+    ja_session_cookie: '',
     llm_base_url:   'http://localhost:11434/v1',
     llm_api_key:    'ollama',
     llm_model:      'qwen3:8b',
-    asr_model:      'iic/SenseVoiceSmall',
-    asr_engine:     'funasr',
+    asr_model:      'base',
+    asr_engine:        'translate',
     asr_device:     'cuda',
     asr_api_base:   '',
     asr_api_key:    '',
@@ -75,8 +70,10 @@ export function SettingsModal({ onClose }: Props) {
   const [showToken, setShowToken] = useState(false)
   const [showKey, setShowKey] = useState(false)
   const [showJaPwd, setShowJaPwd] = useState(false)
+  const [showJaSession, setShowJaSession] = useState(false)
   const [videoLoginStatus, setVideoLoginStatus] = useState<VideoLoginStatus>('idle')
   const [asrApiTestMsg, setAsrApiTestMsg] = useState('')
+  const [translateTestMsg, setTranslateTestMsg] = useState('')
   const overlayRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -143,7 +140,6 @@ export function SettingsModal({ onClose }: Props) {
   }
 
   const isApiMode    = settings.asr_engine === 'api'
-  const isFunasrMode = settings.asr_engine === 'funasr'
   const isWhisperMode = settings.asr_engine === 'faster-whisper'
 
   return (
@@ -165,8 +161,8 @@ export function SettingsModal({ onClose }: Props) {
         {/* Header */}
         <div className="px-6 py-5 border-b border-[var(--border)] flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-amber font-mono">◈</span>
-            <h2 className="font-mono text-sm font-bold text-amber tracking-widest">SETTINGS</h2>
+            <span className="text-[var(--green)] font-mono">◈</span>
+            <h2 className="font-mono text-sm font-bold text-[var(--green)] tracking-widest">SETTINGS</h2>
           </div>
           <button
             onClick={onClose}
@@ -185,7 +181,7 @@ export function SettingsModal({ onClose }: Props) {
 
             {/* ── Canvas ── */}
             <section>
-              <h3 className="font-mono text-xs text-amber/80 tracking-wider mb-3 uppercase">
+              <h3 className="font-mono text-xs text-[var(--green)]/80 tracking-wider mb-3 uppercase">
                 Canvas API
               </h3>
               <div className="space-y-3">
@@ -224,7 +220,7 @@ export function SettingsModal({ onClose }: Props) {
 
             {/* ── jAccount 录屏登录 ── */}
             <section>
-              <h3 className="font-mono text-xs text-amber/80 tracking-wider mb-3 uppercase">
+              <h3 className="font-mono text-xs text-[var(--green)]/80 tracking-wider mb-3 uppercase">
                 课堂录屏（jAccount Cookie）
               </h3>
               <Field label="JAAuthCookie（从已登录浏览器复制）">
@@ -258,7 +254,7 @@ export function SettingsModal({ onClose }: Props) {
                     background: videoLoginStatus === 'done' ? 'rgba(58,122,80,0.12)' : 'transparent',
                     borderColor: videoLoginStatus === 'done' ? 'rgba(58,122,80,0.5)' :
                                  videoLoginStatus === 'error' ? 'rgba(176,64,48,0.5)' : 'var(--border)',
-                    color: videoLoginStatus === 'done' ? 'var(--sage)' :
+                    color: videoLoginStatus === 'done' ? 'var(--moss)' :
                            videoLoginStatus === 'error' ? 'var(--rust)' : 'var(--text-muted)',
                   }}
                 >
@@ -274,7 +270,7 @@ export function SettingsModal({ onClose }: Props) {
 
             {/* ── LLM ── */}
             <section>
-              <h3 className="font-mono text-xs text-amber/80 tracking-wider mb-3 uppercase">
+              <h3 className="font-mono text-xs text-[var(--green)]/80 tracking-wider mb-3 uppercase">
                 LLM
               </h3>
 
@@ -287,7 +283,7 @@ export function SettingsModal({ onClose }: Props) {
                     style={{
                       background: settings.llm_base_url === p.base_url ? 'rgba(212,168,71,0.12)' : 'transparent',
                       borderColor: settings.llm_base_url === p.base_url ? 'rgba(212,168,71,0.5)' : 'var(--border)',
-                      color: settings.llm_base_url === p.base_url ? 'var(--amber)' : 'var(--text-muted)',
+                      color: settings.llm_base_url === p.base_url ? 'var(--moss)' : 'var(--text-muted)',
                     }}
                   >
                     {p.label}
@@ -329,8 +325,8 @@ export function SettingsModal({ onClose }: Props) {
                     placeholder="qwen3:8b"
                   />
                   <p className="field-hint">
-                    Ollama: <code className="text-amber/60">ollama pull qwen3:14b</code>
-                    &nbsp;·&nbsp; MiniMax: <code className="text-amber/60">MiniMax-M2.7</code>（推理）或 <code className="text-amber/60">MiniMax-Text-01</code>（对话）
+                    Ollama: <code className="text-[var(--moss)]/60">ollama pull qwen3:14b</code>
+                    &nbsp;·&nbsp; MiniMax: <code className="text-[var(--moss)]/60">MiniMax-M2.7</code>（推理）或 <code className="text-[var(--moss)]/60">MiniMax-Text-01</code>（对话）
                   </p>
                 </Field>
                 <button
@@ -352,7 +348,7 @@ export function SettingsModal({ onClose }: Props) {
                       setTestMsg(`✕ ${e instanceof Error ? e.message : String(e)}`)
                     }
                   }}
-                  className="font-mono text-xs px-3 py-1.5 rounded border border-sage/30 text-sage hover:bg-sage/10 transition-all"
+                  className="font-mono text-xs px-3 py-1.5 rounded border border-[var(--moss)]/30 text-[var(--moss)] hover:bg-[var(--moss)]/10 transition-all"
                 >
                   ◎ 测试连接
                 </button>
@@ -361,9 +357,64 @@ export function SettingsModal({ onClose }: Props) {
 
             <div className="border-t border-[var(--border)]" />
 
+            {/* ── Translate Cookie ── */}
+            <section>
+              <h3 className="font-mono text-xs text-[var(--green)]/80 tracking-wider mb-3 uppercase">
+                AI 转录站（translate.sjtu.edu.cn）
+              </h3>
+              <Field label="JA_SESSION_COOKIE">
+                <div className="relative">
+                  <input
+                    type={showJaSession ? 'text' : 'password'}
+                    value={settings.ja_session_cookie}
+                    onChange={e => set('ja_session_cookie', e.target.value)}
+                    className="field-input"
+                    placeholder="粘贴 Cookie（包含 JSESSIONID、keepalive 等）"
+                  />
+                  <button
+                    onClick={() => setShowJaSession(v => !v)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 font-mono text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
+                  >
+                    {showJaSession ? 'hide' : 'show'}
+                  </button>
+                </div>
+                <p className="field-hint">
+                  获取方式：浏览器登录 <strong>translate.sjtu.edu.cn</strong> 后
+                  F12 → Application → Cookies → 找 <code>JSESSIONID</code> 和 <code>keepalive</code>，复制完整 Cookie 值粘贴至此
+                </p>
+              </Field>
+              <button
+                onClick={async () => {
+                  setTranslateTestMsg('')
+                  try {
+                    const r = await fetch('/api/settings/test_translate', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ cookie: settings.ja_session_cookie }),
+                    })
+                    const data = await r.json()
+                    setTranslateTestMsg(r.ok ? '✓ Cookie 有效' : `✕ ${data.error ?? '无效'}`)
+                  } catch (e: unknown) {
+                    setTranslateTestMsg(`✕ ${e instanceof Error ? e.message : String(e)}`)
+                  }
+                }}
+                className="font-mono text-xs px-3 py-1.5 rounded border border-[var(--moss)]/30 text-[var(--moss)] hover:bg-[var(--moss)]/10 transition-all"
+                disabled={!settings.ja_session_cookie}
+              >
+                ◎ 测试
+              </button>
+              {translateTestMsg && (
+                <p className={`font-mono text-xs ${translateTestMsg.startsWith('✓') ? 'text-[var(--moss)]' : 'text-[var(--rust)]'}`}>
+                  {translateTestMsg}
+                </p>
+              )}
+            </section>
+
+            <div className="border-t border-[var(--border)]" />
+
             {/* ── ASR ── */}
             <section>
-              <h3 className="font-mono text-xs text-amber/80 tracking-wider mb-3 uppercase">
+              <h3 className="font-mono text-xs text-[var(--green)]/80 tracking-wider mb-3 uppercase">
                 ASR
               </h3>
 
@@ -378,7 +429,7 @@ export function SettingsModal({ onClose }: Props) {
                       style={{
                         background:  settings.asr_engine === m.value ? 'rgba(122,171,138,0.15)' : 'transparent',
                         borderColor: settings.asr_engine === m.value ? 'rgba(122,171,138,0.5)' : 'var(--border)',
-                        color:        settings.asr_engine === m.value ? 'var(--sage)' : 'var(--text-muted)',
+                        color:        settings.asr_engine === m.value ? 'var(--moss)' : 'var(--text-muted)',
                       }}
                     >
                       {m.label}
@@ -428,7 +479,7 @@ export function SettingsModal({ onClose }: Props) {
                           style={{
                             background:  settings.asr_api_model === p.value ? 'rgba(122,171,138,0.15)' : 'transparent',
                             borderColor: settings.asr_api_model === p.value ? 'rgba(122,171,138,0.5)' : 'var(--border)',
-                            color:        settings.asr_api_model === p.value ? 'var(--sage)' : 'var(--text-muted)',
+                            color:        settings.asr_api_model === p.value ? 'var(--moss)' : 'var(--text-muted)',
                             cursor: p.value === '' ? 'not-allowed' : 'pointer',
                           }}
                         >
@@ -462,13 +513,13 @@ export function SettingsModal({ onClose }: Props) {
                         setAsrApiTestMsg(`✕ ${e instanceof Error ? e.message : String(e)}`)
                       }
                     }}
-                    className="font-mono text-xs px-3 py-1.5 rounded border border-sage/30 text-sage hover:bg-sage/10 transition-all"
+                    className="font-mono text-xs px-3 py-1.5 rounded border border-[var(--moss)]/30 text-[var(--moss)] hover:bg-[var(--moss)]/10 transition-all"
                     disabled={!settings.asr_api_base || !settings.asr_api_key}
                   >
                     ◎ 测试连接
                   </button>
                   {asrApiTestMsg && (
-                    <p className={`font-mono text-xs ${asrApiTestMsg.startsWith('✓') ? 'text-sage' : 'text-rust'}`}>
+                    <p className={`font-mono text-xs ${asrApiTestMsg.startsWith('✓') ? 'text-[var(--moss)]' : 'text-[var(--rust)]'}`}>
                       {asrApiTestMsg}
                     </p>
                   )}
@@ -478,7 +529,7 @@ export function SettingsModal({ onClose }: Props) {
                 <div className="space-y-3">
                   <Field label="模型">
                     <div className="flex flex-wrap gap-1.5 mb-2">
-                      {(isFunasrMode ? ASR_FUNASR_PRESETS : ASR_WHISPER_PRESETS).map(p => (
+                      {ASR_WHISPER_PRESETS.map(p => (
                         <button
                           key={p.value}
                           onClick={() => set('asr_model', p.value)}
@@ -486,7 +537,7 @@ export function SettingsModal({ onClose }: Props) {
                           style={{
                             background:  settings.asr_model === p.value ? 'rgba(122,171,138,0.15)' : 'transparent',
                             borderColor: settings.asr_model === p.value ? 'rgba(122,171,138,0.5)' : 'var(--border)',
-                            color:        settings.asr_model === p.value ? 'var(--sage)' : 'var(--text-muted)',
+                            color:        settings.asr_model === p.value ? 'var(--moss)' : 'var(--text-muted)',
                           }}
                         >
                           {p.label}
@@ -494,10 +545,9 @@ export function SettingsModal({ onClose }: Props) {
                       ))}
                     </div>
                     <p className="field-hint">
-                      {isFunasrMode
-                        ? <>SenseVoiceSmall: 中文/粤语/英/日/韩　·　Fun-ASR-Nano: 中文方言+英+日　·　Paraformer: 中文或英文专精</>
-                        : <>Whisper 模型精度：base → small → medium → large-v3<br/>显存需求：base≈1.5GB · small≈2.5GB · medium≈3.5GB · large-v3≈5.5GB</>
-                      }
+                      {isWhisperMode
+                        ? <>Whisper 模型精度：base → small → medium → large-v3<br/>显存需求：base≈1.5GB · small≈2.5GB · medium≈3.5GB · large-v3≈5.5GB</>
+                        : <>{settings.asr_engine === 'translate' ? '直接上传视频/音频文件，由交大转录站完成转写，无需本地模型' : '使用 OpenAI 兼容 API 进行转写'}</>}
                     </p>
                   </Field>
                   <Field label="硬件">
@@ -510,7 +560,7 @@ export function SettingsModal({ onClose }: Props) {
                           style={{
                             background:  settings.asr_device === d ? 'rgba(122,171,138,0.15)' : 'transparent',
                             borderColor: settings.asr_device === d ? 'rgba(122,171,138,0.5)' : 'var(--border)',
-                            color:        settings.asr_device === d ? 'var(--sage)' : 'var(--text-muted)',
+                            color:        settings.asr_device === d ? 'var(--moss)' : 'var(--text-muted)',
                           }}
                         >
                           {d === 'cuda' ? '⚡ GPU ★' : '💻 CPU'}
@@ -518,7 +568,7 @@ export function SettingsModal({ onClose }: Props) {
                       ))}
                     </div>
                     {settings.asr_device === 'cpu' && (
-                      <p className="field-hint text-rust/80">⚠ CPU 模式速度较慢，建议使用 GPU</p>
+                      <p className="field-hint text-[var(--rust)]/80">⚠ CPU 模式速度较慢，建议使用 GPU</p>
                     )}
                   </Field>
                 </div>
@@ -531,7 +581,7 @@ export function SettingsModal({ onClose }: Props) {
         {/* Footer */}
         <div className="px-6 py-4 border-t border-[var(--border)] flex items-center justify-between gap-4">
           {testMsg && (
-            <span className={`font-mono text-xs ${testMsg.startsWith('✓') ? 'text-sage' : 'text-rust'}`}>
+            <span className={`font-mono text-xs ${testMsg.startsWith('✓') ? 'text-[var(--moss)]' : 'text-[var(--rust)]'}`}>
               {testMsg}
             </span>
           )}
@@ -545,7 +595,7 @@ export function SettingsModal({ onClose }: Props) {
             <button
               disabled={saving}
               onClick={save}
-              className="font-mono text-xs px-5 py-2 rounded border border-amber/40 text-amber hover:bg-amber/10 disabled:opacity-40 transition-all"
+              className="font-mono text-xs px-5 py-2 rounded border border-[var(--green)]/40 text-[var(--green)] hover:bg-[var(--green)]/10 disabled:opacity-40 transition-all"
             >
               {saving ? 'saving…' : '✓ save'}
             </button>

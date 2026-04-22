@@ -63,11 +63,11 @@ function RenameModal({ node, onConfirm, onCancel }: { node: FileNode; onConfirm:
           value={value}
           onChange={e => setValue(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') onConfirm(value); if (e.key === 'Escape') onCancel() }}
-          className="w-full font-mono text-sm px-3 py-2 rounded border border-[var(--border)] bg-[var(--surface2)] focus:border-amber/60 focus:outline-none"
+          className="w-full font-mono text-sm px-3 py-2 rounded border border-[var(--border)] bg-[var(--surface2)] focus:border-[var(--green)]/60 focus:outline-none"
         />
         <div className="flex gap-2 justify-end">
           <button onClick={onCancel} className="font-mono text-xs px-3 py-1.5 rounded border border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--border2)]">Cancel</button>
-          <button onClick={() => onConfirm(value)} className="font-mono text-xs px-3 py-1.5 rounded border border-amber/40 text-amber hover:bg-amber/10">Rename</button>
+          <button onClick={() => onConfirm(value)} className="font-mono text-xs px-3 py-1.5 rounded border border-[var(--green)]/40 text-[var(--green)] hover:bg-[var(--green)]/10">Rename</button>
         </div>
       </div>
     </div>
@@ -90,11 +90,11 @@ function MkdirModal({ onConfirm, onCancel }: { onConfirm: (n: string) => void; o
           onChange={e => setValue(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && value.trim()) onConfirm(value.trim()); if (e.key === 'Escape') onCancel() }}
           placeholder="folder name"
-          className="w-full font-mono text-sm px-3 py-2 rounded border border-[var(--border)] bg-[var(--surface2)] focus:border-amber/60 focus:outline-none"
+          className="w-full font-mono text-sm px-3 py-2 rounded border border-[var(--border)] bg-[var(--surface2)] focus:border-[var(--green)]/60 focus:outline-none"
         />
         <div className="flex gap-2 justify-end">
           <button onClick={onCancel} className="font-mono text-xs px-3 py-1.5 rounded border border-[var(--border)] text-[var(--text-muted)]">Cancel</button>
-          <button onClick={() => value.trim() && onConfirm(value.trim())} disabled={!value.trim()} className="font-mono text-xs px-3 py-1.5 rounded border border-amber/40 text-amber hover:bg-amber/10 disabled:opacity-40">Create</button>
+          <button onClick={() => value.trim() && onConfirm(value.trim())} disabled={!value.trim()} className="font-mono text-xs px-3 py-1.5 rounded border border-[var(--green)]/40 text-[var(--green)] hover:bg-[var(--green)]/10 disabled:opacity-40">Create</button>
         </div>
       </div>
     </div>
@@ -114,8 +114,8 @@ function PreviewPanel({ path, name, ext, content, onClose }: { path: string; nam
           <span className="font-mono text-xs text-[var(--text-muted)]">.{ext}</span>
         </div>
         <div className="flex items-center gap-1 shrink-0 ml-2">
-          <a href={api.fileDownloadUrl(path)} download className="font-mono text-xs px-2.5 py-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:border-amber/40 hover:text-amber transition-colors">↓</a>
-          <button onClick={onClose} className="font-mono text-xs px-2 py-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:border-rust/40 hover:text-rust transition-colors">✕</button>
+          <a href={api.fileDownloadUrl(path)} download className="font-mono text-xs px-2.5 py-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--green)]/40 hover:text-[var(--green)] transition-colors">↓</a>
+          <button onClick={onClose} className="font-mono text-xs px-2 py-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--rust)]/40 hover:text-[var(--rust)] transition-colors">✕</button>
         </div>
       </div>
       <div className="flex-1 overflow-auto p-4">
@@ -139,7 +139,7 @@ function MarkdownDisplay({ text }: { text: string }) {
         if (line.startsWith('# '))       return <h1 key={i} className="text-base font-bold text-[var(--text)] mt-4 mb-2 border-b border-[var(--border)] pb-1">{line.slice(2)}</h1>
         if (line.startsWith('## '))      return <h2 key={i} className="text-sm font-semibold text-[var(--text)] mt-3 mb-1">{line.slice(3)}</h2>
         if (line.startsWith('### '))     return <h3 key={i} className="text-xs font-semibold text-[var(--text-mid)] mt-2 mb-1">{line.slice(4)}</h3>
-        if (line.startsWith('> '))       return <blockquote key={i} className="border-l-2 border-amber pl-3 text-[var(--text-muted)] italic my-2">{line.slice(2)}</blockquote>
+        if (line.startsWith('> '))       return <blockquote key={i} className="border-l-2 border-l-[var(--green)] pl-3 text-[var(--text-muted)] italic my-2">{line.slice(2)}</blockquote>
         if (line.startsWith('- ') || line.startsWith('* ')) return <li key={i} className="ml-3">{line.slice(2)}</li>
         if (/^\d+\.\s/.test(line))       return <li key={i} className="ml-3 list-decimal">{line.replace(/^\d+\.\s/, '')}</li>
         if (line.trim() === '')          return <br key={i} />
@@ -265,7 +265,7 @@ export function FileManager() {
       <div className="w-44 shrink-0 border-r border-[var(--border)] flex flex-col overflow-hidden">
         <div className="shrink-0 px-3 py-2.5 border-b border-[var(--border)] flex items-center justify-between">
           <span className="font-mono text-xs text-[var(--text-muted)] tracking-widest">FILES</span>
-          <button onClick={() => setMkdir(true)} title="New folder" className="font-mono text-xs text-[var(--text-muted)] hover:text-amber transition-colors">+ ▤</button>
+          <button onClick={() => setMkdir(true)} title="New folder" className="font-mono text-xs text-[var(--text-muted)] hover:text-[var(--green)] transition-colors">+ ▤</button>
         </div>
         <div className="flex-1 overflow-auto py-1.5">
           <TreeNode nodes={tree} cwd={cwd} onNavigate={n => { setCwd([n]); loadAt(n.path) }} />
@@ -276,21 +276,21 @@ export function FileManager() {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Breadcrumbs + toolbar */}
         <div className="shrink-0 border-b border-[var(--border)] px-4 py-2 flex items-center gap-1 bg-[var(--surface)]">
-          <button onClick={() => { setCwd([]); loadAt(''); setPreview(null) }} className="font-mono text-xs text-[var(--text-muted)] hover:text-amber">data</button>
+          <button onClick={() => { setCwd([]); loadAt(''); setPreview(null) }} className="font-mono text-xs text-[var(--text-muted)] hover:text-[var(--green)]">data</button>
           {cwd.map((seg, i) => (
             <span key={i} className="flex items-center gap-1">
               <span className="font-mono text-xs text-[var(--border2)]">›</span>
               <button
                 onClick={() => navigateBreadcrumb(i)}
-                className={`font-mono text-xs hover:text-amber transition-colors ${i === cwd.length - 1 ? 'text-[var(--text)]' : 'text-[var(--text-muted)]'}`}
+                className={`font-mono text-xs hover:text-[var(--green)] transition-colors ${i === cwd.length - 1 ? 'text-[var(--text)]' : 'text-[var(--text-muted)]'}`}
               >
                 {seg.name}
               </button>
             </span>
           ))}
           <div className="ml-auto flex items-center gap-1.5">
-            <button onClick={() => { setMkdir(true) }} title="New folder" className="font-mono text-xs px-2.5 py-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:border-amber/40 hover:text-amber transition-colors">+ folder</button>
-            <button onClick={() => { loadAt(cwd.map(s => s.name).join('/')); loadTree() }} title="Refresh" className="font-mono text-xs px-2 py-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:border-amber/40 hover:text-amber transition-colors">↺</button>
+            <button onClick={() => { setMkdir(true) }} title="New folder" className="font-mono text-xs px-2.5 py-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--green)]/40 hover:text-[var(--green)] transition-colors">+ folder</button>
+            <button onClick={() => { loadAt(cwd.map(s => s.name).join('/')); loadTree() }} title="Refresh" className="font-mono text-xs px-2 py-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--green)]/40 hover:text-[var(--green)] transition-colors">↺</button>
           </div>
         </div>
 
@@ -312,7 +312,7 @@ export function FileManager() {
                       onClick={() => setSelected(node.path)}
                       onDoubleClick={() => navigateTo(node)}
                       onContextMenu={e => handleCtx(e, node)}
-                      className={`border-b border-[var(--border)]/40 cursor-pointer transition-colors group ${selected === node.path ? 'bg-amber/5' : 'hover:bg-[var(--surface2)]'}`}
+                      className={`border-b border-[var(--border)]/40 cursor-pointer transition-colors group ${selected === node.path ? 'bg-[var(--green-bg)]' : 'hover:bg-[var(--surface2)]'}`}
                       style={{ animationDelay: `${i * 15}ms` }}
                     >
                       <td className="px-4 py-2.5 w-8 text-base">{fileIcon(node)}</td>
@@ -332,7 +332,7 @@ export function FileManager() {
                             download={node.name}
                             onClick={e => e.stopPropagation()}
                             title="Download"
-                            className="font-mono text-xs text-[var(--border)] hover:text-amber transition-colors"
+                            className="font-mono text-xs text-[var(--border)] hover:text-[var(--green)] transition-colors"
                           >↓</a>
                         )}
                       </td>
@@ -379,7 +379,7 @@ export function FileManager() {
           >↓  Download</button>
           <div className="border-t border-[var(--border)] my-1" />
           <button
-            className="w-full text-left px-4 py-2 font-mono text-xs text-rust hover:bg-rust/5"
+            className="w-full text-left px-4 py-2 font-mono text-xs text-[var(--rust)] hover:bg-[var(--rust)]/5"
             onClick={() => { doDelete(ctx.node); setCtx(null) }}
           >🗑  Delete</button>
         </div>
@@ -412,7 +412,7 @@ function TreeNode({ nodes, cwd, onNavigate, depth = 0 }: {
             <button
               onClick={() => onNavigate(node)}
               className={`w-full text-left px-3 py-1.5 flex items-center gap-1.5 font-mono text-xs transition-colors ${
-                isActive ? 'text-amber bg-amber/8' : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface2)]'
+                isActive ? 'text-[var(--green)] bg-[var(--green-bg)]' : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface2)]'
               }`}
               style={{ paddingLeft: `${12 + depth * 12}px` }}
             >

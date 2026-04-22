@@ -16,7 +16,7 @@ def _get_anthropic():
     global _anthropic
     if _anthropic is None:
         import anthropic
-        _anthropic = anthropic
+        _anthropic = anthropic.Anthropic
     return _anthropic
 
 
@@ -28,6 +28,7 @@ async def llm_stream(
     messages: list[dict],
     temperature: float = 0.3,
     extra: dict | None = None,
+    max_tokens: int = 4096,
 ):
     """
     生成器：yield 每个 delta SSE 行
@@ -35,7 +36,7 @@ async def llm_stream(
     出错时 yield {"error": "..."}
     """
     if _is_anthropic(base_url):
-        async for line in _anthropic_stream(base_url, api_key, model, system, messages, temperature, extra):
+        async for line in _anthropic_stream(base_url, api_key, model, system, messages, temperature, extra, max_tokens):
             yield line
     else:
         async for line in _openai_stream(base_url, api_key, model, system, messages, temperature, extra):
@@ -73,10 +74,10 @@ async def _openai_stream(
 async def _anthropic_stream(
     base_url: str, api_key: str, model: str,
     system: str, messages: list[dict],
-    temperature: float, extra: dict | None,
+    temperature: float, extra: dict | None, max_tokens: int,
 ):
     Anthropic = _get_anthropic()
-    client = Anthropic(base_url=base_url, api_key=api_key, timeout=30)
+    client = Anthropic(base_url=base_url, api_key=api_key, timeout=120)
 
     # Anthropic 格式：user 消息是 content blocks
     anthropic_messages = []
@@ -97,16 +98,20 @@ async def _anthropic_stream(
             system=system,
             messages=anthropic_messages,
             temperature=temperature,
+            max_tokens=max_tokens,
             **extra,
         ) as stream:
             full = []
             for event in stream:
                 if event.type == "content_block_delta":
-                    delta = event.delta.text or ""
+                    delta = getattr(event.delta, "text", None) or ""
                     if delta:
                         full.append(delta)
                         yield f"data: {json.dumps({'delta': delta})}\n\n"
                 elif event.type == "message_delta":
+                    pass
+                elif event.type in ("thinking_block_delta", "thinking_delta"):
+                    # MiniMax: skip thinking blocks
                     pass
             yield f"data: {json.dumps({'done': True, 'content': ''.join(full)})}\n\n"
     except Exception as e:

@@ -45,6 +45,28 @@ class CanvasClient:
     def list_course_folders(self, course_id: int) -> list[dict]:
         return self._get_all(f"/api/v1/courses/{course_id}/folders")
 
+    def get_folder_path(self, folder_id: int, folders_cache: list[dict] | None = None) -> str:
+        """
+        Resolve the full relative path of a folder by walking up the parent chain.
+        Returns e.g. 'course files/阅读文本'. Returns '' for the root course folder.
+        """
+        if folders_cache is None:
+            # caller should pass the cache to avoid repeated API calls
+            return ""
+        fc = {f["id"]: f for f in folders_cache}
+        parts = []
+        fid = folder_id
+        while fid and fid in fc:
+            f = fc[fid]
+            name = f.get("name", "")
+            # stop at course root folder (no parent or parent is course root)
+            parent = f.get("parent_folder_id")
+            if parent is None or (parent in fc and fc[parent].get("parent_folder_id") is None):
+                break
+            parts.append(name)
+            fid = parent
+        return "/".join(reversed(parts))
+
     # ── 视频 ──────────────────────────────────────────────────────────────
     def list_media_objects(self, course_id: int) -> list[dict]:
         return self._get_all(f"/api/v1/courses/{course_id}/media_objects")
@@ -74,6 +96,30 @@ class CanvasClient:
                     f.write(chunk)
                     bar.update(len(chunk))
         return save_path
+
+    def download_file(self, course_id: int, file_id: int, filename: str, out_dir: str | Path) -> Path:
+        """
+        Download a single file by Canvas file_id, preserving folder subdirs under out_dir.
+        e.g. out_dir='data/downloads/创新实践', file in 'course files/阅读文本' →
+             out_dir/'course files/阅读文本'/filename
+        """
+        out_dir = Path(out_dir)
+        # fetch folder path for this file
+        folders = self.list_course_folders(course_id)
+        all_files = self.list_course_files(course_id)
+        file_info = next((f for f in all_files if f["id"] == file_id), None)
+        folder_rel = ""
+        if file_info:
+            folder_rel = self.get_folder_path(file_info["folder_id"], folders)
+        target_dir = out_dir / folder_rel if folder_rel else out_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        save_path = target_dir / filename
+        if save_path.exists():
+            print(f"  [skip] {save_path.name} 已存在")
+            return save_path
+        # use /files/{id}/download endpoint (no verifier needed)
+        dl_url = f"{self.base_url}/files/{file_id}/download"
+        return self.download(dl_url, save_path)
 
     # ── 便捷方法：下载课程所有文档和视频 ──────────────────────────────────
     def download_course_docs(self, course_id: int, course_name: str) -> list[Path]:

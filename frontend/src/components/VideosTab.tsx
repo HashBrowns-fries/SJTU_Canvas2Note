@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { pushToast } from './Toast'
 import type { Course } from '../types'
-import type { VideoItem, VideoPlay } from '../api'
+import type { VideoItem, VideoPlay, PptSlideSet } from '../api'
 
 function fmtDur(sec: number) {
   if (!sec) return '--:--'
@@ -50,7 +50,16 @@ export function VideosTab({
   const [downloading, setDownloading] = useState<Set<string>>(new Set())
   const [transcribing, setTranscribing] = useState<Set<string>>(new Set())
   const [downloaded, setDownloaded] = useState<Set<string>>(new Set())
+  const [transcribed, setTranscribed] = useState<Set<string>>(new Set())
   const [playSelector, setPlaySelector] = useState<{ video: VideoItem; plays: VideoPlay[] } | null>(null)
+  const [downloadProgress, setDownloadProgress] = useState<Map<string, { processed: number; total: number }>>(new Map())
+
+  // PPT slides
+  const [slideSets, setSlideSets] = useState<PptSlideSet[]>([])
+  const [slideBrowser, setSlideBrowser] = useState<PptSlideSet | null>(null)
+  const [slideIndex, setSlideIndex] = useState(0)
+  const [pptDownloading, setPptDownloading] = useState<Set<string>>(new Set())
+  const [pptDownloaded, setPptDownloaded] = useState<Set<string>>(new Set())
 
   // Batch selection
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -77,16 +86,40 @@ export function VideosTab({
       })
       setDownloaded(downloaded)
     }).catch(() => {})
+    api.transcriptions().then(trs => {
+      const transcribed = new Set<string>()
+      trs.filter((t: any) => t.course === course.name).forEach((t: any) => {
+        const stem = t.name.split('/').pop() || ''
+        transcribed.add(stem)
+      })
+      setTranscribed(transcribed)
+    }).catch(() => {})
+    // Load existing PPT slide sets
+    api.pptSlidesList(course.name).then(sets => {
+      setSlideSets(sets)
+      const downloaded = new Set<string>()
+      sets.forEach(s => downloaded.add(s.title))
+      setPptDownloaded(downloaded)
+    }).catch(() => {})
   }, [course.id])
 
   function isDownloaded(v: VideoItem) {
     const title = v.title || ''
     const normalized = (s: string) => s.replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, '').toLowerCase()
     const vidKey = normalized(title)
+    const stemKey = vidKey.replace('_录屏', '')
     return [...downloaded].some(n => {
       const downloadedKey = normalized(n)
-      return (downloadedKey.includes(vidKey) && vidKey.length >= 8)
-      || downloadedKey.replace('_录屏', '').includes(vidKey.replace('_录屏', ''))
+      const dlStem = downloadedKey.replace('_录屏', '')
+      // Both are short lecture numbers — exact match
+      if (vidKey.length < 8 && downloadedKey.length < 8) {
+        return vidKey === dlStem || stemKey === dlStem || stemKey === downloadedKey
+      }
+      // One or both include course name
+      return downloadedKey.includes(vidKey)
+          || vidKey.includes(downloadedKey)
+          || dlStem.includes(stemKey)
+          || stemKey.includes(dlStem)
     })
   }
 
@@ -122,6 +155,9 @@ export function VideosTab({
       const poll = setInterval(async () => {
         const t = await api.task(task_id).catch(() => null)
         if (!t) return
+        if (t.progress != null && t.total != null) {
+          setDownloadProgress(p => new Map(p).set(v.id, { processed: t.progress, total: t.total as number }))
+        }
         if (t.status === 'done') {
           clearInterval(poll)
           pushToast({ type: 'success', message: `✓ 已保存: ${v.title}` })
@@ -152,7 +188,7 @@ export function VideosTab({
       return
     }
     try {
-      const plays = await api.videoPlays(v.id, v.title)
+      const plays = await api.videoPlays(v.id, course.id, v.title)
       if (plays.length <= 1) {
         void doDownload(v, -1)
       } else {
@@ -189,6 +225,8 @@ export function VideosTab({
           clearInterval(poll)
           pushToast({ type: 'success', message: '✓ 转录完成' })
           setTranscribing(p => { const n = new Set(p); n.delete(v.id); return n })
+          const stem = (v.title || '').replace(/[^a-zA-Z0-9 ._一-鿿-]/g, '_').trim()
+          setTranscribed(p => new Set(p).add(stem))
           onTranscribed()
         }
         if (t.status === 'error') {
@@ -201,6 +239,51 @@ export function VideosTab({
       pushToast({ type: 'error', message: '转录请求失败' })
       setTranscribing(p => { const n = new Set(p); n.delete(v.id); return n })
     }
+  }
+
+  // ── PPT slides ───────────────────────────────────────────────────────────────
+
+  async function downloadPpt(v: VideoItem) {
+    if (!v.cour_id) { pushToast({ type: 'error', message: '无 cour_id，无法下载 PPT' }); return }
+    if (pptDownloading.has(v.id)) return
+    setPptDownloading(p => new Set(p).add(v.id))
+    try {
+      const { task_id } = await api.pptDownload({
+        course_name: course.name,
+        video_title: v.title,
+        cour_id: v.cour_id,
+        course_id: course.id,
+      })
+      pushToast({ type: 'info', message: `PPT 下载中: ${v.title}` })
+      const poll = setInterval(async () => {
+        const t = await api.task(task_id).catch(() => null)
+        if (!t) return
+        if (t.status === 'done') {
+          clearInterval(poll)
+          pushToast({ type: 'success', message: `✓ PPT 已保存: ${v.title}` })
+          setPptDownloading(p => { const n = new Set(p); n.delete(v.id); return n })
+          const stem = (v.title || '').replace(/[^a-zA-Z0-9 ._一-鿿-]/g, '_').trim()
+          setPptDownloaded(p => new Set(p).add(stem))
+          // Refresh slide list
+          api.pptSlidesList(course.name).then(setSlideSets).catch(() => {})
+        }
+        if (t.status === 'error') {
+          clearInterval(poll)
+          pushToast({ type: 'error', message: `PPT 失败: ${t.error}` })
+          setPptDownloading(p => { const n = new Set(p); n.delete(v.id); return n })
+        }
+      }, 2000)
+    } catch {
+      pushToast({ type: 'error', message: 'PPT 下载请求失败' })
+      setPptDownloading(p => { const n = new Set(p); n.delete(v.id); return n })
+    }
+  }
+
+  function openSlideBrowser(title: string) {
+    const found = slideSets.find(s => s.title.replace(/[^a-zA-Z0-9 ._一-鿿-]/g, '_').trim() === title.replace(/[^a-zA-Z0-9 ._一-鿿-]/g, '_').trim())
+      || slideSets.find(s => s.title.includes(title) || title.includes(s.title))
+    if (found) setSlideBrowser(found)
+    else pushToast({ type: 'info', message: '请先下载 PPT 幻灯片' })
   }
 
   // ── Batch transcribe ────────────────────────────────────────────────────────
@@ -257,12 +340,12 @@ export function VideosTab({
       <div className="sticky top-0 z-10 px-6 py-3 flex items-center gap-3 border-b border-[var(--border)] bg-[var(--bg)] flex-wrap">
         <span className="font-mono text-xs font-bold text-[var(--text)]">{course.name}</span>
         <span className="font-mono text-xs text-[var(--text-muted)]">· {videos.length} 个录屏</span>
-        <span className="font-mono text-xs px-2 py-0.5 bg-sage/10 text-sage rounded border border-sage/20">v.sjtu.edu.cn</span>
+        <span className="font-mono text-xs px-2 py-0.5 bg-[var(--green-bg)] text-[var(--green)] rounded border border-[var(--green)]/20">v.sjtu.edu.cn</span>
 
         {/* Batch controls */}
         <div className="flex items-center gap-2 ml-auto">
           {selected.size > 0 && (
-            <span className="font-mono text-xs text-amber">{selected.size} 已选</span>
+            <span className="font-mono text-xs text-[var(--green)]">{selected.size} 已选</span>
           )}
           <button
             onClick={selectAll}
@@ -281,7 +364,7 @@ export function VideosTab({
               <button
                 disabled={isBatchActive}
                 onClick={startBatchTranscribe}
-                className="font-mono text-xs px-3 py-1 rounded border border-rust/40 text-rust hover:bg-rust/10 disabled:opacity-40 transition-all"
+                className="font-mono text-xs px-3 py-1 rounded border border-[var(--rust)]/40 text-[var(--rust)] hover:bg-[var(--rust)]/10 disabled:opacity-40 transition-all"
               >
                 ↓◎ 批量转录
               </button>
@@ -295,7 +378,7 @@ export function VideosTab({
         <thead>
           <tr className="border-b border-[var(--border)]">
             <th className="text-left font-mono text-xs text-[var(--text-muted)] px-6 py-2 w-8">
-              <input type="checkbox" className="accent-amber"
+              <input type="checkbox" className="accent-[var(--green)]"
                 checked={selected.size === videos.filter(v => !isDownloaded(v)).length && selected.size > 0}
                 onChange={e => e.target.checked ? selectAll() : deselectAll()}
               />
@@ -312,6 +395,7 @@ export function VideosTab({
             const trBusy = transcribing.has(v.id)
             const isDl = isDownloaded(v)
             const isSel = selected.has(v.id)
+            const isTrs = transcribed.has(v.title?.replace(/[^a-zA-Z0-9 ._一-鿿-]/g, '_').trim())
             const batchInfo = batchStatusMap[v.id]
             const batchStatus = batchInfo?.status
 
@@ -326,12 +410,12 @@ export function VideosTab({
               <tr
                 key={v.id}
                 className={`border-b border-[var(--border)]/50 group transition-colors animate-fade-in ${
-                  isSel ? 'bg-amber/5' : 'hover:bg-[var(--surface2)]/50'
+                  isSel ? 'bg-[var(--green)]/5' : 'hover:bg-[var(--surface2)]/50'
                 }`}
                 style={{ animationDelay: `${i * 30}ms` }}
               >
                 <td className="px-6 py-3 align-middle">
-                  <input type="checkbox" className="accent-amber"
+                  <input type="checkbox" className="accent-[var(--green)]"
                     checked={isSel}
                     disabled={rowStatus !== 'idle'}
                     onChange={() => toggleSelect(v.id)}
@@ -341,14 +425,14 @@ export function VideosTab({
                   {String(i + 1).padStart(2, '0')}
                 </td>
                 <td className="px-4 py-3 align-middle">
-                  <p className="text-sm text-[var(--text)] leading-snug group-hover:text-amber transition-colors">
+                  <p className="text-sm text-[var(--text)] leading-snug group-hover:text-[var(--green)] transition-colors">
                     {v.title || '（无标题）'}
                   </p>
                   <p className="font-mono text-xs text-[var(--text-muted)] mt-0.5">
                     {fmtDate(v.courseBeginTime || '')}
                   </p>
                   {batchInfo?.error && (
-                    <p className="font-mono text-xs text-rust mt-0.5">{batchInfo.error}</p>
+                    <p className="font-mono text-xs text-[var(--rust)] mt-0.5">{batchInfo.error}</p>
                   )}
                 </td>
                 <td className="px-4 py-3 align-middle hidden sm:table-cell">
@@ -357,22 +441,51 @@ export function VideosTab({
                 <td className="px-4 py-3 align-middle">
                   <div className="flex gap-1.5 flex-wrap">
                     {/* Row status indicator */}
-                    {rowStatus === 'downloading' && (
-                      <span className="font-mono text-xs px-2.5 py-1 border border-amber/30 text-amber/70 rounded animate-pulse">↓</span>
-                    )}
+                    {rowStatus === 'downloading' && (() => {
+                      const prog = downloadProgress.get(v.id)
+                      const pct = prog && prog.total > 0 ? Math.round(prog.processed / prog.total * 100) : 0
+                      const mb = prog ? `(${(prog.processed/1024**2).toFixed(0)}/${(prog.total/1024**2).toFixed(0)}MB)` : ''
+                      return prog ? (
+                        <div className="flex flex-col gap-1 min-w-[120px]">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono text-xs text-[var(--green)]/70">↓ {pct}%</span>
+                            <span className="font-mono text-xs text-[var(--text-muted)] opacity-60">{mb}</span>
+                          </div>
+                          <div className="h-1 bg-[var(--border)] rounded-full overflow-hidden">
+                            <div className="h-full bg-[var(--green)]/50 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="font-mono text-xs px-2.5 py-1 border border-[var(--green)]/30 text-[var(--green)]/70 rounded animate-pulse">↓</span>
+                      )
+                    })()}
                     {rowStatus === 'transcribing' && (
-                      <span className="font-mono text-xs px-2.5 py-1 border border-sage/30 text-sage/70 rounded animate-pulse">◎</span>
+                      <span className="font-mono text-xs px-2.5 py-1 border border-[var(--moss)]/30 text-[var(--moss)]/70 rounded animate-pulse">◎</span>
                     )}
                     {rowStatus === 'done' && (
-                      <span className="font-mono text-xs px-2.5 py-1 border border-sage/30 text-sage rounded">✓</span>
+                      <span className="font-mono text-xs px-2.5 py-1 border border-[var(--moss)]/30 text-[var(--moss)] rounded">✓</span>
                     )}
                     {rowStatus === 'error' && (
-                      <span className="font-mono text-xs px-2.5 py-1 border border-rust/30 text-rust rounded">✗</span>
+                      <span className="font-mono text-xs px-2.5 py-1 border border-[var(--rust)]/30 text-[var(--rust)] rounded">✗</span>
                     )}
                     {rowStatus === 'idle' && (
                       <>
                         {isDl ? (
-                          <span className="font-mono text-xs px-2.5 py-1 border border-sage/30 text-sage/60 rounded">已有</span>
+                          isTrs ? (
+                            <span className="font-mono text-xs px-2.5 py-1 border border-[var(--moss)]/30 text-[var(--moss)]/60 rounded">已有</span>
+                          ) : (
+                            <button
+                              disabled={trBusy}
+                              onClick={() => transcribe(v)}
+                              className={`font-mono text-xs px-2.5 py-1 rounded border transition-all ${
+                                trBusy
+                                  ? 'border-[var(--border)] text-[var(--text-muted)] cursor-wait'
+                                  : 'border-[var(--moss)]/30 text-[var(--moss)] hover:bg-[var(--moss)]/10'
+                              }`}
+                            >
+                              {trBusy ? '⟳' : '◎'}
+                            </button>
+                          )
                         ) : (
                           <button
                             disabled={dlBusy}
@@ -380,7 +493,7 @@ export function VideosTab({
                             className={`font-mono text-xs px-2.5 py-1 rounded border transition-all ${
                               dlBusy
                                 ? 'border-[var(--border)] text-[var(--text-muted)] cursor-wait'
-                                : 'border-amber/30 text-amber hover:bg-amber/10'
+                                : 'border-[var(--green)]/30 text-[var(--green)] hover:bg-[var(--green)]/10'
                             }`}
                           >
                             {dlBusy ? '…' : '↓'}
@@ -393,10 +506,33 @@ export function VideosTab({
                             className={`font-mono text-xs px-2.5 py-1 rounded border transition-all ${
                               trBusy
                                 ? 'border-[var(--border)] text-[var(--text-muted)] cursor-wait'
-                                : 'border-sage/30 text-sage hover:bg-sage/10'
+                                : 'border-[var(--moss)]/30 text-[var(--moss)] hover:bg-[var(--moss)]/10'
                             }`}
                           >
                             {trBusy ? '⟳' : '◎'}
+                          </button>
+                        )}
+                        {/* PPT slides button */}
+                        {pptDownloaded.has((v.title || '').replace(/[^a-zA-Z0-9 ._一-鿿-]/g, '_').trim()) ? (
+                          <button
+                            onClick={() => openSlideBrowser(v.title || '')}
+                            className="font-mono text-xs px-2.5 py-1 rounded border border-violet-400/30 text-violet-400 hover:bg-violet-400/10 transition-all"
+                            title="浏览幻灯片"
+                          >
+                            ◧
+                          </button>
+                        ) : (
+                          <button
+                            disabled={pptDownloading.has(v.id)}
+                            onClick={() => downloadPpt(v)}
+                            className={`font-mono text-xs px-2.5 py-1 rounded border transition-all ${
+                              pptDownloading.has(v.id)
+                                ? 'border-[var(--border)] text-[var(--text-muted)] cursor-wait'
+                                : 'border-violet-400/30 text-violet-400/70 hover:bg-violet-400/10'
+                            }`}
+                            title="下载 PPT 幻灯片"
+                          >
+                            {pptDownloading.has(v.id) ? '…' : '◧'}
                           </button>
                         )}
                       </>
@@ -431,7 +567,7 @@ export function VideosTab({
                   className="w-full text-left px-5 py-3 flex items-center gap-3 hover:bg-[var(--surface2)] transition-colors"
                 >
                   <span className={`font-mono text-xs w-14 shrink-0 px-2 py-0.5 rounded border ${
-                    play.index === 0 ? 'border-amber/30 text-amber bg-amber/5' : 'border-sage/30 text-sage bg-sage/5'
+                    play.index === 0 ? 'border-[var(--green)]/30 text-[var(--green)] bg-[var(--green)]/5' : 'border-[var(--moss)]/30 text-[var(--moss)] bg-[var(--moss-bg)]'
                   }`}>
                     {play.index === 0 ? '主屏' : '录屏'}
                   </span>
@@ -446,6 +582,69 @@ export function VideosTab({
                 onClick={() => setPlaySelector(null)}
                 className="font-mono text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
               >取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Slide browser modal */}
+      {slideBrowser && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setSlideBrowser(null)}
+        >
+          <div
+            className="bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl flex flex-col overflow-hidden"
+            style={{ width: 'min(900px, 95vw)', height: 'min(700px, 90vh)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-5 py-3 border-b border-[var(--border)] flex items-center gap-3 shrink-0 bg-[var(--surface2)]">
+              <span className="font-mono text-xs text-violet-400">◧</span>
+              <span className="font-mono text-xs text-[var(--text)] flex-1 truncate">{slideBrowser.title}</span>
+              <span className="font-mono text-xs text-[var(--text-muted)]">{slideIndex + 1} / {slideBrowser.count}</span>
+              <button
+                onClick={() => setSlideBrowser(null)}
+                className="font-mono text-xs text-[var(--text-muted)] hover:text-[var(--text)] ml-2"
+              >✕</button>
+            </div>
+            {/* Image */}
+            <div className="flex-1 overflow-hidden flex items-center justify-center bg-[#111] p-4">
+              <img
+                key={slideIndex}
+                src={`/api/slides/${encodeURIComponent(slideBrowser.course)}/${encodeURIComponent(slideBrowser.title)}/${encodeURIComponent(slideBrowser.images[slideIndex])}`}
+                alt={`Slide ${slideIndex + 1}`}
+                className="max-h-full max-w-full object-contain rounded"
+                style={{ animation: 'fadeIn 0.15s ease' }}
+              />
+            </div>
+            {/* Controls */}
+            <div className="px-5 py-3 border-t border-[var(--border)] flex items-center gap-3 shrink-0 bg-[var(--surface2)]">
+              <button
+                disabled={slideIndex === 0}
+                onClick={() => setSlideIndex(i => i - 1)}
+                className="font-mono text-xs px-3 py-1.5 rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 transition-all"
+              >←</button>
+              <div className="flex gap-1 flex-1 justify-center overflow-x-auto max-w-0 flex-auto">
+                {slideBrowser.images.map((img, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setSlideIndex(i)}
+                    className={`shrink-0 w-10 h-7 rounded border text-xs font-mono transition-all ${
+                      i === slideIndex
+                        ? 'border-violet-400/60 bg-violet-400/10 text-violet-400'
+                        : 'border-[var(--border)]/40 text-[var(--text-muted)]/50 hover:border-[var(--border)] hover:text-[var(--text-muted)]'
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+              <button
+                disabled={slideIndex === slideBrowser.count - 1}
+                onClick={() => setSlideIndex(i => i + 1)}
+                className="font-mono text-xs px-3 py-1.5 rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-30 transition-all"
+              >→</button>
             </div>
           </div>
         </div>

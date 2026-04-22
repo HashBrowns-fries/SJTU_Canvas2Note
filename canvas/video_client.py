@@ -78,6 +78,7 @@ class VideoDownloadProgress:
     total: int
 
 
+
 class SJTUVideoClient:
     """
     完全对齐 CanvasHelper 的录屏下载客户端
@@ -363,6 +364,64 @@ class SJTUVideoClient:
         data = resp.json()
         return data.get("data") or []
 
+    def download_ppt(self, cour_id: str, video_title: str, out_dir: str | Path) -> Path:
+        """
+        下载 PPT 幻灯片（对齐 CanvasHelper 逻辑）
+        1. get_ppt_slides 获取幻灯片列表
+        2. 带 Referer: https://courses.sjtu.edu.cn 下载每张图片（S3/JCloud CDN 鉴权）
+        3. 用 img2pdf 合并为 PDF，失败则保存为 zip
+        """
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        slides = self.get_ppt_slides(cour_id)
+        if not slides:
+            raise RuntimeError(f"课程 {cour_id} 无 PPT 幻灯片")
+
+        print(f"[PPT] 共 {len(slides)} 张幻灯片")
+        safe_title = re.sub(r'[\\/:*?"<>|]', "_", video_title or "slides")
+        img_dir = out_dir / f"{safe_title}_ppt_imgs"
+        img_dir.mkdir(parents=True, exist_ok=True)
+
+        img_paths: list[Path] = []
+        for i, slide in enumerate(tqdm(slides, desc=f"PPT {video_title[:20]}", ncols=60)):
+            img_url = slide.get("pptImgUrl") or slide.get("ppt_img_url") or ""
+            if not img_url:
+                continue
+            ext = ".jpg"
+            if ".png" in img_url.lower():
+                ext = ".png"
+            elif ".webp" in img_url.lower():
+                ext = ".webp"
+            img_path = img_dir / f"slide_{i+1:03d}{ext}"
+            img_paths.append(img_path)
+            if img_path.exists():
+                continue
+            # 带 Referer header 下载（S3/JCloud CDN 鉴权需要）
+            img_resp = self.session.get(img_url, headers={"Referer": "https://courses.sjtu.edu.cn"}, timeout=30)
+            img_resp.raise_for_status()
+            img_path.write_bytes(img_resp.content)
+
+        if not img_paths:
+            raise RuntimeError("PPT 图片下载失败（全部为空）")
+
+        # 合并为 PDF（img2pdf）
+        pdf_path = out_dir / f"{safe_title}.pdf"
+        try:
+            import img2pdf
+            with open(pdf_path, "wb") as f:
+                f.write(img2pdf.convert([str(p) for p in img_paths]))
+            print(f"[PPT] PDF: {pdf_path}")
+            return pdf_path
+        except ImportError:
+            import zipfile
+            zip_path = out_dir / f"{safe_title}_ppt.zip"
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for p in img_paths:
+                    zf.write(p, p.name)
+            print(f"[PPT] img2pdf 未安装，ZIP: {zip_path}")
+            return zip_path
+
     def get_video_info(self, video_id: str, video_title: str = "") -> VideoInfo:
         """获取单个视频的下载信息（所有播放片段）"""
         url = f"{V_BASE}/jy-application-canvas-sjtu/directOnDemandPlay/getVodVideoInfos"
@@ -572,3 +631,290 @@ class SJTUVideoClient:
 
         self.init_with_cookie(ja_auth_cookie)
         return self.login_video_website()
+    # ── Server compat wrappers ──────────────────────────────────────────────────
+
+    def list_course_videos(self, course_id: int) -> list[dict]:
+        """兼容 server.py：返回 dict list（含 cour_id）"""
+        videos = self.list_videos(course_id)
+        return [
+            {"id": v.id, "title": v.title, "duration": v.duration, "cour_id": v.cour_id}
+            for v in videos
+        ]
+
+    def list_ppt_slides(self, cour_id: str, course_id: int) -> list[dict]:
+        """兼容 server.py：bind course 后再获取 slides"""
+        self.bind_canvas_course(course_id)
+        return self.get_ppt_slides(cour_id)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SJTU 旧版课堂视频客户端（External Tool 9487 - 课堂视频旧版）
+#
+# 认证流程：
+#   JAAuthCookie → Canvas OIDC 登录 → GET external_tool 页面 → 提取 LTI 表单
+#   → POST /lti/launch → 跳转拿 canvasCourseId → 调用直播 API
+#
+# API 端点：
+#   POST /lti/liveVideo/findLiveList       → 直播列表
+#   POST /lti/liveVideo/getLiveVideoInfos  → 流地址 + 教师/屏幕双轨
+# ─────────────────────────────────────────────────────────────────────────────
+
+import subprocess
+import cv2
+from dataclasses import dataclass
+
+
+@dataclass
+class LiveStream:
+    """一场直播"""
+    id: str            # base64 encoded, 用于 getLiveVideoInfos
+    title: str         # e.g. "形势与政策(第3讲)"
+    teacher: str
+    room: str
+    begin_time: str    # "2026-04-22 16:00:00"
+    end_time: str
+    status: str        # "开放" / "关闭"
+
+
+@dataclass
+class StreamUrls:
+    """两个流的下载地址"""
+    camera_url: str | None  # cdviChannelNum=0, 教师摄像
+    screen_url: str | None  # cdviChannelNum=7, 电脑屏幕
+    auth_expires: int      # auth_key 过期时间戳（UTC 秒）
+
+
+class SJTUOldVideoClient:
+    """
+    旧版课堂视频（External Tool 9487）客户端。
+
+    使用步骤：
+      1. __init__(ja_auth_cookie)      ← 注入 JAAuthCookie 并完成 OIDC 登录
+      2. get_live_list(course_id)       ← 获取课程直播列表
+      3. get_stream_urls(live_id)        ← 获取流地址
+      4. capture_screen_frame(url)      ← 截图（仅电脑屏幕流）
+      5. detect_qrcodes(img_path)        ← 识别二维码
+      6. transcribe_stream(screen_url)   ← 实时转写（FunASR）
+    """
+
+    OLD_TOOL_ID = 9487  # 课堂视频旧版
+
+    def __init__(self, ja_auth_cookie: str):
+        self._ja_auth = ja_auth_cookie
+        self.session = requests.Session()
+        self.session.headers["User-Agent"] = (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+        )
+        self._canvas_course_id: str | None = None
+        self._lti_fields: dict | None = None
+        self._login()
+
+    def _inject_cookies(self) -> None:
+        for domain in ["oc.sjtu.edu.cn", "jaccount.sjtu.edu.cn", "my.sjtu.edu.cn"]:
+            self.session.cookies.set("JAAuthCookie", self._ja_auth, domain=domain, path="/")
+
+    def _login(self) -> None:
+        """Canvas OIDC 登录"""
+        self._inject_cookies()
+        resp = self.session.get(
+            f"{CANVAS_BASE}/login/openid_connect",
+            timeout=15, allow_redirects=True
+        )
+        if "jaccount" in resp.url.lower():
+            raise RuntimeError("Canvas 登录失败：JAAuthCookie 可能已过期")
+        print("[Canvas 登录] 成功")
+
+    def _get_lti_form(self, course_id: int) -> dict:
+        """GET external_tool 页面，提取 LTI launch 表单"""
+        resp = self.session.get(
+            f"{CANVAS_BASE}/courses/{course_id}/external_tools/{self.OLD_TOOL_ID}",
+            timeout=15, allow_redirects=True
+        )
+        form_match = re.search(r"<form[^>]*>.*?</form>", resp.text, re.DOTALL)
+        if not form_match:
+            raise RuntimeError("无法从 external_tool 页面提取 LTI 表单")
+        inputs = re.findall(
+            r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\'][^>]*/?>',
+            form_match.group(0),
+        )
+        return {name: val for name, val in inputs}
+
+    def _lti_launch(self, course_id: int) -> str:
+        """
+        POST LTI 表单，返回 canvasCourseId（从最终 URL 中提取）。
+        """
+        fields = self._get_lti_form(course_id)
+        self._lti_fields = fields
+        resp = self.session.post(
+            f"{COURSES_BASE}/lti/launch",
+            data=fields,
+            timeout=15,
+            allow_redirects=True,
+        )
+        m = re.search(r"canvasCourseId=([^&]+)", resp.url)
+        if not m:
+            raise RuntimeError(f"LTI launch 未返回 canvasCourseId: {resp.url}")
+        self._canvas_course_id = m.group(1)
+        return self._canvas_course_id
+
+    def _api(self, path: str, data: dict) -> requests.Response:
+        """POST 到 courses.sjtu.edu.cn/liveVideo/*"""
+        return self.session.post(
+            f"{COURSES_BASE}{path}",
+            data=data,
+            timeout=15,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+        )
+
+    def get_live_list(self, course_id: int, live_days: int = 7) -> list[LiveStream]:
+        """
+        获取课程直播列表。
+        POST /lti/liveVideo/findLiveList
+        """
+        cid = self._lti_launch(course_id)
+        resp = self._api(
+            "/lti/liveVideo/findLiveList",
+            data={
+                "liveDays": str(live_days),
+                "pageIndex": "1",
+                "pageSize": "100",
+                "canvasCourseId": cid,
+            },
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        if body.get("code") != 200:
+            raise RuntimeError(f"findLiveList 失败: {body.get('desc')}")
+        items = body.get("body", {}).get("list", [])
+        streams = []
+        for it in items:
+            audit = it.get("courAuditStatus", 0)
+            in_school = it.get("inSchoolLiveStatus", 0)
+            status = []
+            if audit == 1: status.append("教学班开放")
+            if in_school == 1: status.append("校内开放")
+            streams.append(LiveStream(
+                id=it.get("id", ""),
+                title=it.get("courName", ""),
+                teacher=it.get("userName", ""),
+                room=it.get("clroName", ""),
+                begin_time=it.get("courBeginTime", ""),
+                end_time=it.get("courEndTime", ""),
+                status="/".join(status) if status else "关闭",
+            ))
+        return streams
+
+    def get_stream_urls(self, course_id: int, live_id: str) -> StreamUrls:
+        """
+        获取直播流地址（教师摄像 + 电脑屏幕）。
+        POST /lti/liveVideo/getLiveVideoInfos
+        """
+        self._lti_launch(course_id)  # 确保有 canvasCourseId
+        resp = self._api(
+            "/lti/liveVideo/getLiveVideoInfos",
+            data={
+                "playMode": "",
+                "id": live_id,
+                "clroLiveVodvideoRight": "liveRight",
+            },
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        if body.get("code") != 200:
+            raise RuntimeError(f"getLiveVideoInfos 失败: {body.get('desc')}")
+        info = body.get("body", {})
+        streams = info.get("videoPlayResponseVoList", [])
+
+        camera_url: str | None = None
+        screen_url: str | None = None
+        auth_expires = 0
+
+        for s in streams:
+            ch = s.get("cdviChannelNum", -1)
+            # 优先用 HD，其次 fluency
+            url = s.get("rtmpUrlHdv") or s.get("rtmpUrlFluency") or s.get("rtmpUrlDefault")
+            if not url:
+                continue
+            # 提取 auth_key 过期时间
+            m = re.search(r"auth_key=(\d+)", url)
+            if m:
+                auth_expires = max(auth_expires, int(m.group(1)))
+            if ch == 7:
+                screen_url = url
+            else:
+                camera_url = url  # cdviChannelNum=0 或其他
+
+        # 兜底：screen_url 未找到时用第一个有 rtmpUrlDefault 的
+        if screen_url is None:
+            for s in streams:
+                url = s.get("rtmpUrlDefault") or s.get("rtmpUrlFluency")
+                if url:
+                    screen_url = url
+                    break
+
+        return StreamUrls(camera_url=camera_url, screen_url=screen_url, auth_expires=auth_expires)
+
+    def capture_frame(
+        self,
+        flv_url: str,
+        offset_sec: float = 2.0,
+        output_path: str = "/tmp/live_frame.jpg",
+    ) -> str | None:
+        """
+        从 FLV 直播流截取一帧为 JPG。
+        offset_sec: 跳过前 N 秒（直播开头可能有黑帧）。
+        返回图片路径，失败返回 None。
+        """
+        r = subprocess.run([
+            "ffmpeg", "-y",
+            "-ss", str(offset_sec),
+            "-i", flv_url,
+            "-vframes", "1",
+            "-q:v", "3",
+            output_path,
+        ], capture_output=True, timeout=20)
+        if r.returncode == 0:
+            return output_path
+        print(f"[截图] ffmpeg 失败: {r.stderr.decode()[:200]}", file=sys.stderr)
+        return None
+
+    def detect_qrcodes(self, img_path: str) -> list[str]:
+        """
+        用 OpenCV 检测并解码图片中的所有二维码。
+        返回二维码内容列表，空列表表示未检测到。
+        """
+        img = cv2.imread(img_path)
+        if img is None:
+            return []
+        detector = cv2.QRCodeDetector()
+        decoded_str, _, _ = detector.detectAndDecode(img)
+        if decoded_str:
+            return [decoded_str]
+        try:
+            multi_decoded, _, _ = detector.detectAndDecodeMulti(img)
+            if isinstance(multi_decoded, list):
+                return [d for d in multi_decoded if d]
+            elif multi_decoded:
+                return [multi_decoded]
+        except (TypeError, ValueError):
+            pass
+        return []
+
+    def capture_screen_frame(self, course_id: int, live_id: str,
+                              output_path: str = "/tmp/live_screen.jpg") -> str | None:
+        """
+        便捷方法：从课程直播中截取电脑屏幕截图。
+        自动识别 cdviChannelNum=7 的流。
+        """
+        urls = self.get_stream_urls(course_id, live_id)
+        if not urls.screen_url:
+            print("[截图] 未找到屏幕流", file=sys.stderr)
+            return None
+        return self.capture_frame(urls.screen_url, output_path=output_path)
+
+
+# Alias for backward compat with code that imports VideoClient
+VideoClient = SJTUVideoClient

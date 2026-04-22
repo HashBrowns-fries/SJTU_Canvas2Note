@@ -16,15 +16,14 @@ for d in [DOWNLOAD_DIR, AUDIO_DIR, NOTES_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # ASR
-# ASR_ENGINE: faster-whisper / funasr / api
-# ASR_DEVICE: cuda / cpu（仅 faster-whisper / funasr 模式有效）
+# ASR_ENGINE: faster-whisper / qwen3 / api
+# ASR_DEVICE: cuda / cpu
 # ASR_MODEL:
 #   faster-whisper → base / small / medium / large-v3
-#   funasr         → iic/SenseVoiceSmall / paraformer-zh / paraformer-en / FunAudioLLM/Fun-ASR-Nano-2512
 #   api            → 由 asr_api_model 指定
-ASR_ENGINE = "funasr"
+ASR_ENGINE = "translate"
 ASR_DEVICE = "cuda"
-ASR_MODEL  = "iic/SenseVoiceSmall"
+ASR_MODEL  = "base"
 
 # LLM（本地 Ollama 或 OpenAI 兼容接口）
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")

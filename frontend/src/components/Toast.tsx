@@ -24,24 +24,24 @@ export function ToastContainer() {
     return () => { _push = null }
   }, [])
 
-  const colors: Record<Toast['type'], string> = {
-    info:    'border-amber/40',
-    success: 'border-sage/40',
-    error:   'border-rust/40',
+  const borders: Record<Toast['type'], string> = {
+    info:    'border-[var(--green)]/40',
+    success: 'border-[var(--moss)]/40',
+    error:   'border-[var(--rust)]/40',
   }
-  const icons = { info: '◈', success: '◆', error: '◉' }
-  const text  = { info: 'text-amber', success: 'text-sage', error: 'text-rust' }
+  const icons  = { info: '◈', success: '◆', error: '◉' }
+  const colors = { info: 'text-[var(--green)]', success: 'text-[var(--moss)]', error: 'text-[var(--rust)]' }
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
       {toasts.map(t => (
         <div
           key={t.id}
-          className={`animate-slide-up border rounded px-4 py-3 flex items-center gap-3 font-mono text-sm min-w-[280px] shadow-lg ${colors[t.type]}`}
-          style={{ background: '#fffef8' }}
+          className={`animate-slide-up border rounded-xl px-4 py-3 flex items-center gap-3 font-mono text-sm min-w-[280px] shadow-lg ${borders[t.type]}`}
+          style={{ background: 'var(--paper)' }}
         >
-          <span className={text[t.type]}>{icons[t.type]}</span>
-          <span style={{ color: 'var(--text)' }}>{t.message}</span>
+          <span className={colors[t.type]}>{icons[t.type]}</span>
+          <span style={{ color: 'var(--ink)' }}>{t.message}</span>
         </div>
       ))}
     </div>

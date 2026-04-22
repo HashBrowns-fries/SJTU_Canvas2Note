@@ -3,126 +3,196 @@
 @tailwind utilities;
 
 :root {
-  --bg:        #fafaf8;
+  /* ─── Base ──────────────────────────────────────────────── */
+  --bg:        #f5f6f3;
   --surface:   #ffffff;
-  --surface2:  #f3f2ee;
-  --surface3:  #eceae4;
-  --border:    #ddd9d0;
-  --border2:   #c8c4ba;
-  --amber:     #b07c1a;
-  --amber-bg:  rgba(176,124,26,0.08);
-  --sage:      #3a7a50;
-  --sage-bg:   rgba(58,122,80,0.08);
-  --rust:      #b04030;
-  --text:      #1c1a16;
-  --text-mid:  #4a4840;
-  --text-muted:#8a8880;
-  --paper:     #fffdf5;
-  --ink:       #1c1a16;
+  --surface2:  #edf0ec;
+  --surface3:  #e2e8e1;
+  --border:    #d0d9ce;
+  --border2:   #b4c4b1;
+
+  /* ─── Brand: Forest green ────────────────────────────────── */
+  --green:       #1e6b3a;
+  --green-dim:   #4a9460;
+  --green-glow:  #2d8f52;
+  --green-bg:    rgba(30,107,58,0.08);
+  --green-light: rgba(30,107,58,0.05);
+
+  /* ─── Accent: Moss / Sage ────────────────────────────────── */
+  --moss:      #5a8a60;
+  --moss-bg:   rgba(90,138,96,0.1);
+
+  /* ─── Text ──────────────────────────────────────────────── */
+  --ink:       #141f16;
+  --ink-mid:   #2e3d2b;
+  --muted:     #6b8068;
+  --faint:     #9db09a;
+
+  /* ─── Semantic ───────────────────────────────────────────── */
+  --rust:      #a04030;
+
+  /* ─── Aliases (backward compat) ─────────────────────────── */
+  --text:       var(--ink);
+  --text-mid:   var(--ink-mid);
+  --text-muted: var(--muted);
+
+  /* ─── Paper / Note surface ──────────────────────────────── */
+  --paper:     #fdfef8;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ─── Body ─────────────────────────────────────────────────── */
 body {
   background: var(--bg);
-  color: var(--text);
-  font-family: 'DM Sans', system-ui, sans-serif;
+  color: var(--ink);
+  font-family: 'Outfit', system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.6;
   overflow: hidden;
   height: 100vh;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Scrollbars */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+/* ─── Scrollbars ───────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border2); }
 
-/* Markdown in notes */
+/* ─── Typography ───────────────────────────────────────────── */
+.font-display  { font-family: 'Fraunces', Georgia, serif; }
+.font-mono     { font-family: 'JetBrains Mono', 'Courier Prime', monospace; }
+.font-chinese  { font-family: 'Noto Serif SC', 'Songti SC', serif; }
+
+/* ─── Markdown / Prose Notes ─────────────────────────────────── */
 .prose-notes {
-  font-family: 'Lora', Georgia, serif;
+  font-family: 'Noto Serif SC', 'Songti SC', serif;
   font-size: 15px;
-  line-height: 1.85;
+  line-height: 1.9;
   color: var(--ink);
 }
-.prose-notes h1 { font-size: 1.65rem; font-weight: 700; margin: 0 0 1.2rem; border-bottom: 2px solid rgba(176,124,26,0.25); padding-bottom: 0.5rem; color: var(--ink); }
-.prose-notes h2 { font-size: 1.2rem; font-weight: 600; margin: 1.6rem 0 0.6rem; color: var(--ink); }
-.prose-notes h3 { font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.4rem; color: var(--text-mid); }
+.prose-notes h1 { font-size: 1.7rem; font-weight: 600; margin: 0 0 1.2rem; border-bottom: 2px solid var(--green-bg); padding-bottom: 0.5rem; color: var(--ink); font-family: 'Fraunces', Georgia, serif; }
+.prose-notes h2 { font-size: 1.2rem; font-weight: 600; margin: 1.6rem 0 0.6rem; color: var(--ink-mid); font-family: 'Fraunces', Georgia, serif; }
+.prose-notes h3 { font-size: 1.05rem; font-weight: 600; margin: 1.2rem 0 0.4rem; color: var(--muted); font-family: 'Fraunces', Georgia, serif; }
 .prose-notes p  { margin-bottom: 0.9rem; }
 .prose-notes ul, .prose-notes ol { padding-left: 1.5rem; margin-bottom: 0.9rem; }
 .prose-notes li { margin-bottom: 0.35rem; }
-.prose-notes code { font-family: 'Courier Prime', monospace; font-size: 0.88em; background: var(--surface3); padding: 0.1em 0.4em; border-radius: 3px; border: 1px solid var(--border); }
-.prose-notes pre  { background: #1e1c18; color: #e8e4d8; padding: 1rem; border-radius: 8px; overflow-x: auto; margin-bottom: 1rem; }
+.prose-notes code { font-family: 'JetBrains Mono', monospace; font-size: 0.88em; background: var(--surface3); padding: 0.1em 0.4em; border-radius: 3px; border: 1px solid var(--border); color: var(--green); }
+.prose-notes pre  { background: #1a2e1d; color: #c8e6cb; padding: 1rem; border-radius: 10px; overflow-x: auto; margin-bottom: 1rem; border: 1px solid #2a4530; }
 .prose-notes pre code { background: none; padding: 0; color: inherit; border: none; }
-.prose-notes blockquote { border-left: 3px solid var(--amber); padding-left: 1rem; color: var(--text-mid); margin: 1rem 0; font-style: italic; background: var(--amber-bg); padding: 0.5rem 1rem; border-radius: 0 6px 6px 0; }
-.prose-notes strong { font-weight: 700; color: var(--ink); }
+.prose-notes blockquote { border-left: 3px solid var(--green); padding-left: 1rem; color: var(--muted); margin: 1rem 0; font-style: italic; background: var(--green-light); padding: 0.5rem 1rem; border-radius: 0 8px 8px 0; }
+.prose-notes strong { font-weight: 600; color: var(--green); }
 .prose-notes table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; font-size: 0.9em; }
-.prose-notes th { background: var(--surface3); padding: 0.5rem 0.9rem; text-align: left; font-weight: 700; border-bottom: 2px solid var(--border); }
+.prose-notes th { background: var(--surface3); padding: 0.5rem 0.9rem; text-align: left; font-weight: 600; border-bottom: 2px solid var(--border); color: var(--green); }
 .prose-notes td { padding: 0.45rem 0.9rem; border-bottom: 1px solid var(--border); }
 .prose-notes tr:last-child td { border-bottom: none; }
+.prose-notes tr:hover td { background: var(--green-light); }
 
-/* Chat bubble */
-.chat-user   { background: #eef5ee; border: 1px solid #c0d8c2; }
-.chat-assist { background: #fdf5ec; border: 1px solid #e0d0b0; }
+/* ─── Chat bubbles ──────────────────────────────────────────── */
+.chat-user   { background: var(--green-light); border: 1px solid rgba(30,107,58,0.15); }
+.chat-assist { background: #f0f7f1; border: 1px solid rgba(30,107,58,0.1); }
 
-/* Markdown in chat bubbles */
+/* ─── Markdown in chat ─────────────────────────────────────── */
 .markdown-body p   { margin-bottom: 0.6rem; }
 .markdown-body p:last-child { margin-bottom: 0; }
 .markdown-body ul, .markdown-body ol { padding-left: 1.3rem; margin-bottom: 0.6rem; }
 .markdown-body li { margin-bottom: 0.25rem; }
-.markdown-body code { font-family: 'Courier Prime', monospace; font-size: 0.88em; background: rgba(0,0,0,0.07); padding: 0.1em 0.4em; border-radius: 3px; }
-.markdown-body pre { background: #1e1c18; color: #e8e4d8; padding: 0.8rem; border-radius: 6px; overflow-x: auto; margin-bottom: 0.7rem; }
+.markdown-body code { font-family: 'JetBrains Mono', monospace; font-size: 0.88em; background: var(--surface3); padding: 0.1em 0.4em; border-radius: 3px; color: var(--green); }
+.markdown-body pre { background: #1a2e1d; color: #c8e6cb; padding: 0.8rem; border-radius: 8px; overflow-x: auto; margin-bottom: 0.7rem; border: 1px solid #2a4530; }
 .markdown-body pre code { background: none; padding: 0; color: inherit; }
-.markdown-body blockquote { border-left: 3px solid var(--amber); padding: 0.4rem 0.8rem; margin: 0.5rem 0; background: rgba(212,168,71,0.08); border-radius: 0 4px 4px 0; color: var(--text-mid); }
-.markdown-body strong { font-weight: 700; }
+.markdown-body blockquote { border-left: 3px solid var(--green); padding: 0.4rem 0.8rem; margin: 0.5rem 0; background: var(--green-light); border-radius: 0 6px 6px 0; color: var(--muted); }
+.markdown-body strong { font-weight: 600; color: var(--green); }
 .markdown-body table { width: 100%; border-collapse: collapse; margin-bottom: 0.7rem; font-size: 0.9em; }
-.markdown-body th { background: rgba(0,0,0,0.06); padding: 0.4rem 0.8rem; text-align: left; font-weight: 700; border-bottom: 2px solid var(--border); }
+.markdown-body th { background: var(--surface3); padding: 0.4rem 0.8rem; text-align: left; font-weight: 600; border-bottom: 2px solid var(--border); color: var(--green); }
 .markdown-body td { padding: 0.4rem 0.8rem; border-bottom: 1px solid var(--border); }
 .markdown-body tr:last-child td { border-bottom: none; }
-.markdown-body h1, .markdown-body h2, .markdown-body h3 { font-weight: 700; margin: 0.6rem 0 0.3rem; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { font-weight: 600; margin: 0.6rem 0 0.3rem; font-family: 'Fraunces', Georgia, serif; }
 .markdown-body h1 { font-size: 1.1em; }
 .markdown-body h2 { font-size: 1em; }
 .markdown-body h3 { font-size: 0.95em; }
 
-/* Form fields */
+/* ─── Form fields ───────────────────────────────────────────── */
 .field-input {
   width: 100%;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 9px 13px;
-  font-family: 'Courier Prime', monospace;
-  font-size: 13px;
-  color: var(--text);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  color: var(--ink);
+  transition: border-color 0.18s, box-shadow 0.18s;
   outline: none;
 }
-.field-input:focus { border-color: rgba(176,124,26,0.5); box-shadow: 0 0 0 3px rgba(176,124,26,0.1); }
-.field-input::placeholder { color: var(--text-muted); }
+.field-input:focus { border-color: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
+.field-input::placeholder { color: var(--faint); }
 
 .field-hint {
   margin-top: 4px;
-  font-family: 'Courier Prime', monospace;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--muted);
 }
 .field-hint code {
-  background: rgba(176,124,26,0.08);
+  background: var(--green-bg);
   padding: 1px 4px;
   border-radius: 3px;
-  color: var(--amber);
+  color: var(--green);
+  font-family: 'JetBrains Mono', monospace;
 }
 
-/* Paper texture for notes */
+/* ─── Tab indicators ───────────────────────────────────────── */
+.tab-active   { border-bottom: 2px solid var(--green); color: var(--green); background: var(--green-bg); }
+.tab-inactive { border-bottom: 2px solid transparent; color: var(--muted); }
+.tab-inactive:hover { border-bottom-color: var(--border2); color: var(--ink-mid); }
+
+/* ─── Paper texture for notes ───────────────────────────────── */
 .paper-bg {
   background-color: var(--paper);
   background-image:
-    radial-gradient(circle at 25% 25%, rgba(176,124,26,0.03) 0%, transparent 50%),
-    radial-gradient(circle at 75% 75%, rgba(58,122,80,0.03) 0%, transparent 50%);
+    radial-gradient(ellipse at 20% 20%, rgba(30,107,58,0.04) 0%, transparent 55%),
+    radial-gradient(ellipse at 80% 80%, rgba(90,138,96,0.04) 0%, transparent 55%);
 }
 
-/* Tab indicator line */
-.tab-active { border-bottom: 2px solid var(--amber); color: var(--amber); background: rgba(176,124,26,0.06); }
-.tab-inactive { border-bottom: 2px solid transparent; color: var(--text-muted); }
-.tab-inactive:hover { border-bottom-color: var(--border2); color: var(--text-mid); }
+/* ─── Animations ────────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fade-in 0.2s ease forwards; }
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up { animation: slide-up 0.25s ease forwards; }
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.cursor::after {
+  content: '▋';
+  display: inline-block;
+  animation: cursor-blink 1s step-end infinite;
+  color: var(--green);
+  font-size: 0.85em;
+}
+
+/* ─── Focus rings ───────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ─── Selection ────────────────────────────────────────────── */
+::selection {
+  background: var(--green-bg);
+  color: var(--ink);
+}
+
+/* ─── Buttons base ──────────────────────────────────────────── */
+button { cursor: pointer; transition: all 0.15s ease; }
+button:active { transform: scale(0.97); }

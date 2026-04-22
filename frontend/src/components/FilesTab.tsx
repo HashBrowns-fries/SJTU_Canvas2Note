@@ -112,7 +112,7 @@ export function FilesTab({ course }: Props) {
                     className={`font-mono text-xs px-3 py-1.5 rounded border transition-all ${
                       busy
                         ? 'border-[var(--border)] text-[var(--text-muted)] cursor-wait'
-                        : 'border-amber/30 text-amber hover:bg-amber/10 hover:border-amber/60'
+                        : 'border-[var(--green)]/30 text-[var(--green)] hover:bg-[var(--green)]/10 hover:border-[var(--green)]/60'
                     }`}
                   >
                     {busy ? '…' : '↓ get'}

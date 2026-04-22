@@ -20,7 +20,9 @@ export function TranscriptionsTab({ course, refresh }: { course: Course; refresh
   useEffect(() => {
     api.transcriptions().then(all => {
       // Filter by course field directly (backend already stores course dir name)
-      setList(all.filter((t: Transcription) => t.course === course.name))
+      // Normalize: strip any bracketed suffix so '现代汉语（2）' matches dir '现代汉语(2)'
+      const norm = (s: string) => s.replace(/[（()].*/, '').trim()
+      setList(all.filter((t: Transcription) => norm(t.course) === norm(course.name)))
     }).catch(() => setList([]))
   }, [refresh, course.id])
 
@@ -50,7 +52,7 @@ export function TranscriptionsTab({ course, refresh }: { course: Course; refresh
             onClick={() => load(t.name)}
             className={`w-full text-left px-4 py-3 border-b border-[var(--border)]/50 transition-colors ${
               selected === t.name
-                ? 'bg-[var(--surface2)] border-l-2 border-l-sage text-sage'
+                ? 'bg-[var(--surface2)] border-l-2 border-l-[var(--moss)] text-[var(--moss)]'
                 : 'hover:bg-[var(--surface2)] text-[var(--text)]'
             }`}
           >
@@ -75,9 +77,9 @@ export function TranscriptionsTab({ course, refresh }: { course: Course; refresh
         {selected && (
           <>
             <div className="px-6 py-3 border-b border-[var(--border)] flex items-center gap-3">
-              <span className="font-mono text-sm text-sage">{selected}</span>
+              <span className="font-mono text-sm text-[var(--moss)]">{selected}</span>
               {text && (
-                <span className="font-mono text-xs px-2 py-0.5 bg-sage/10 text-sage rounded border border-sage/20">
+                <span className="font-mono text-xs px-2 py-0.5 bg-[var(--green-bg)] text-[var(--green)] rounded border border-[var(--green)]/20">
                   {detectLang(text)}
                 </span>
               )}

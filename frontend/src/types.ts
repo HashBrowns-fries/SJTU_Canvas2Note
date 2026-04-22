@@ -23,8 +23,9 @@ export interface MediaObject {
 export interface Task {
   id: string
   kind: string
-  status: 'pending' | 'running' | 'done' | 'error'
+  status: 'pending' | 'running' | 'done' | 'error' | 'downloading'
   progress: number
+  total?: number
   result: string | null
   error: string | null
 }
