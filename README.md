@@ -54,109 +54,175 @@ Canvas2note/
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 安装
 
 ```bash
-# 安装 uv（如已有可跳过）
+# 安装 uv
 pip install uv
 
-# 克隆后同步依赖（自动创建虚拟环境）
+# 基础安装（无需 GPU，77 个包）
+git clone https://github.com/HashBrowns-fries/SJTU_Canvas2Note.git
+cd SJTU_Canvas2Note
 uv sync
 
-# 可选：验证环境
-uv run python -c "import fastapi; print('OK')"
+# 需要本地 ASR 时（可选）
+uv sync --extra asr       # faster-whisper + torch
+uv sync --extra funasr    # FunASR SenseVoice + torch
 ```
-
-> `uv.lock` 已提交到 git，`uv sync` 装的是锁定版本，与 CI 保持一致。
 
 ### 2. 配置
 
-首次启动后访问 http://localhost:8000 ，在右上角 **SETTINGS** 填写：
+启动后在 Web UI 右上角 **SETTINGS** 填写凭证：
 
 | 字段 | 说明 |
 |---|---|
 | Canvas Base URL | `https://oc.sjtu.edu.cn` |
-| Canvas Token | 登录 oc.sjtu.edu.cn → Account → Settings → New Access Token |
-| JA Auth Cookie | 录屏下载认证：浏览器登录 courses.sjtu.edu.cn → F12 → Application → Cookies → `JAAuthCookie` |
-| JA Session Cookie | AI 转录站认证：浏览器登录 translate.sjtu.edu.cn → F12 → Application → Cookies → 复制完整 Cookie（包含 JSESSIONID、keepalive 等）|
-| LLM Base URL | API 地址，如 `https://api.deepseek.com/v1` |
+| Canvas Token | oc.sjtu.edu.cn → Account → Settings → New Access Token |
+| LLM Base URL | 如 `https://api.deepseek.com/v1` |
 | LLM API Key | 你的 API 密钥 |
-| LLM Model | 模型名称，如 `deepseek-chat` |
-| ASR 引擎 | `translate`（交大转录站）/ `faster-whisper` / `qwen3` / `API` |
-| ASR 模型 | 引擎对应模型名（如 faster-whisper: base/small/medium/large-v3） |
-| ASR 硬件 | `cuda`（GPU）或 `cpu` |
+| LLM Model | 如 `deepseek-chat` |
 
-配置写入 `settings.json`（也可手动编辑），支持 ASR 引擎选择、vLLM 端点、VLM 模型名等高级选项。
+配置写入 `settings.json`（不入 git）。录屏下载、转录站等高级选项见 Settings 内提示。
 
-### 3. 启动 Web UI
+## 🧑 用户使用
+
+### Web UI（推荐）
 
 ```bash
-cd /path/to/Canvas2note
-python -m uvicorn server:app --port 8000 --host 0.0.0.0
+uv run python -m uvicorn server:app --port 8000
+# 打开 http://localhost:8000
 ```
 
-访问 http://localhost:8000
+**典型流程**：左侧选课程 → Videos 页下载录屏 → 点击转录按钮 → Notes 页勾选课件+转录 → Generate 生成笔记 → 右侧 ChatPanel 基于笔记对话。
 
-### 4. CLI（Agent 调用）
+页面功能：
 
-所有命令返回 JSON，流式命令实时输出到 stderr。启动后端：`python -m uvicorn server:app --port 8000`
+| Tab | 用途 |
+|-----|------|
+| **Canvas** | 浏览课程文件（PDF/PPT/DOCX），一键下载 |
+| **Local** | 文件浏览器，预览/重命名/删除 data/ 下文件 |
+| **Videos** | 课堂录屏列表，下载/转录/PPT幻灯片，支持批量 |
+| **Transcriptions** | 查看转录结果，按单词数统计 |
+| **Notes** | 预览/编辑/生成 Markdown 笔记，支持课件+转录+PPT 融合 |
+
+### Tauri 桌面应用
 
 ```bash
-# ── 课程 / 文件 / 视频 ───────────────────────────────────────────
-python cli.py list-courses
-python cli.py list-files --course-id 88220
-python cli.py list-videos --course-id 88220
+cd frontend
+npm install
+npm run tauri dev     # 开发
+npm run tauri build   # 打包 .msi / .dmg / .AppImage
+```
 
-# ── 转写（translate.sjtu.edu.cn，无需 GPU）────────────────────────
-# 单视频转写（完成后自动保存到 data/audio/课程名/）
-python cli.py transcribe --video /data/lecture.mp4 --course "现代汉语（2）"
+Settings → Server 页设置 Python 后端地址（如 `http://localhost:8000`）。
 
-# 不等待，拿到 task_id 后手动查询进度
-python cli.py transcribe --video /data/lecture.mp4 --course "现代汉语（2）" --no-wait
+## 🤖 Agent 使用
 
-# 批量转写（需先从 /api/video/courses/{id}/videos 获取视频列表）
-python cli.py batch-transcribe     --items '{"course_id":87767,"course_name":"现代汉语（2）","video_id":"j8J65fn+3OIYKMqAfXgcpQ==","title":"第1讲","play_index":0}'     --course "现代汉语（2）"     --delete   # 转写完成后删除原视频节省空间
+Agent 通过 CLI 调用，**所有命令返回 JSON**，支持管道组合。需先启动后端服务。
 
-# ── 直播（LTI External Tool 9487）───────────────────────────────
-# 列出课程直播
-python cli.py live-list --course-id 89343
+```bash
+# 启动后端（Agent 操作前）
+uv run python -m uvicorn server:app --port 8000 &
 
-# 从直播截取电脑屏幕截图
-python cli.py live-screenshot --course-id 89343 --live-id "$LIVE_ID" --output /tmp/screen.jpg
+# 或直接用 uv run，无需手动启动
+uv run python cli.py <command>
+```
 
-# 从直播屏幕截图识别二维码
-python cli.py live-qr --course-id 89343 --live-id "$LIVE_ID"
+### 基础操作
 
-# 实时转写直播（默认 120 秒，可选 --stream-url 直接传入 FLV 地址）
-python cli.py live-transcribe --course-id 89343 --live-id "$LIVE_ID" --duration 300
+```bash
+# 列出课程
+uv run python cli.py list-courses
+# → [{"id":88220,"name":"现代汉语（2）","course_code":"CHN202"}]
 
-# ── 转写文件管理 ─────────────────────────────────────────────────
-python cli.py list-transcripts --course "现代汉语（2）"
-python cli.py get-transcript --name "现代汉语（2）/现代汉语(2)(第1讲)"
+# 列出课程文件
+uv run python cli.py list-files --course-id 88220
+# → [{"id":1234,"display_name":"课件.pdf","size":2048000,...}]
 
-# ── 笔记生成 ─────────────────────────────────────────────────────
-# 转写文本 + 课件 PDF → AI 生成 Markdown 笔记
-python cli.py generate-notes --course "现代汉语（2）" \
+# 下载文件
+uv run python cli.py download --course-id 88220 --course-name "现代汉语（2）" \
+    --type file --file-id 12345
+
+# 列出录屏视频
+uv run python cli.py list-videos --course-id 88220
+```
+
+### 转录
+
+```bash
+# 单视频转录（同步，返回完整结果）
+uv run python cli.py transcribe \
+    --video data/downloads/现代汉语（2）/第1讲.mp4 \
+    --course "现代汉语（2）"
+
+# 异步转录（返回 task_id，后台轮询）
+uv run python cli.py transcribe \
+    --video /data/lecture.mp4 \
+    --course "现代汉语（2）" \
+    --no-wait
+# → {"task_id":"a1b2c3d4"}
+
+# 查询任务状态
+uv run python cli.py task --id a1b2c3d4
+# → {"status":"done","result":{"text":"...","chars":12345},"progress":100}
+
+# 批量转录（下载+转录+删视频一键完成）
+uv run python cli.py batch-transcribe \
+    --course "现代汉语（2）" \
+    --items '[{"course_id":88220,"course_name":"现代汉语（2）","video_id":"xxx","title":"第1讲","play_index":0}]' \
+    --delete
+```
+
+### 笔记生成
+
+```bash
+# 查看已有转录
+uv run python cli.py list-transcripts --course "现代汉语（2）"
+uv run python cli.py get-transcript --name "现代汉语（2）/第1讲"
+
+# 生成笔记：课件 + 转录 → Markdown
+uv run python cli.py generate-notes \
+    --course "现代汉语（2）" \
     --doc data/downloads/现代汉语（2）/课件.pdf \
-    --transcript-text "$(python cli.py get-transcript --name '现代汉语（2）/现代汉语(2)(第1讲)' | jq -r .text)" \
-    --transcript-name "现代汉语(2)(第1讲)" \
-    -o data/notes/现代汉语（2）/现代汉语(2)(第1讲).md
+    --transcript-name "第1讲" \
+    --transcript-text "$(uv run python cli.py get-transcript --name '现代汉语（2）/第1讲' | jq -r .text)"
+# → SSE 流式输出，完成后保存到 data/notes/现代汉语（2）/第1讲.md
 
-python cli.py list-notes --course "现代汉语（2）"
-python cli.py get-note --course "现代汉语（2）" --filename "现代汉语(2)(第1讲).md"
+# 查看笔记
+uv run python cli.py list-notes --course "现代汉语（2）"
+uv run python cli.py get-note --course "现代汉语（2）" --filename "第1讲.md"
+```
 
-# ── 对话（基于笔记上下文）─────────────────────────────────────────
-python cli.py chat \
-    --messages '[{"role":"user","content":"这节课的核心知识点有哪些？"}]' \
-    --context-note "$(cat data/notes/现代汉语（2）/现代汉语(2)(第1讲).md)"
+### 对话
 
-# ── 设置 ────────────────────────────────────────────────────────
-python cli.py settings get
-# 修改 ASR 引擎
-python cli.py settings set --key asr_engine --value "translate"   # 交大转录站（默认）
-python cli.py settings set --key asr_engine --value "faster-whisper"  # 本地 Whisper
-python cli.py settings set --key asr_engine --value "qwen3"          # Qwen3-ASR-1.7B（需 vLLM）
-python cli.py settings set --key asr_model --value "base"
+```bash
+# 基于笔记内容与 LLM 对话（流式输出到 stderr，JSON 到 stdout）
+uv run python cli.py chat \
+    --messages '[{"role":"user","content":"总结这节课的核心知识点"}]' \
+    --context-note "$(cat data/notes/现代汉语（2）/第1讲.md)"
+```
+
+### 设置管理
+
+```bash
+# 读取全部设置
+uv run python cli.py settings get
+
+# 修改单项
+uv run python cli.py settings set --key llm_model --value "deepseek-chat"
+uv run python cli.py settings set --key asr_engine --value "translate"
+```
+
+### Agent 典型工作流
+
+```bash
+# 一条命令：查课程 → 下载+转录 → 生成笔记
+uv run python cli.py pipeline --course-id 88220
+
+# 等价于手动执行：
+# 1. list-videos --course-id 88220
+# 2. 对每个视频: download + transcribe
+# 3. generate-notes（合并所有转录+课件）
 ```
 
 ## ASR 引擎对比
