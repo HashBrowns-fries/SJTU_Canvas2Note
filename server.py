@@ -907,6 +907,106 @@ def test_asr(body: dict):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# API — jAccount QR Login
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_qr_sessions: dict[str, dict] = {}  # uuid → QRLoginSession
+
+
+@app.post("/api/auth/qrcode")
+def auth_qrcode_start():
+    """Start jAccount QR login. Returns UUID + QR image URL."""
+    from canvas.jaccount import get_qr_code
+
+    session = get_qr_code()
+    if not session or not session.uuid:
+        raise HTTPException(502, "无法获取 jAccount 登录二维码，请检查网络连接")
+
+    _qr_sessions[session.uuid] = {
+        "uuid": session.uuid,
+        "qr_url": session.qr_url,
+        "cookies": session.cookies,
+        "status": session.status,
+    }
+    return {
+        "uuid": session.uuid,
+        "qr_url": f"/api/auth/qrcode/{session.uuid}/image",
+        "status": session.status,
+    }
+
+
+@app.get("/api/auth/qrcode/{uuid}/image")
+def auth_qrcode_image(uuid: str):
+    """Proxy the QR code image from jAccount (avoids CORS issues)."""
+    import httpx
+
+    session = _qr_sessions.get(uuid)
+    if not session:
+        raise HTTPException(404, "QR session not found or expired")
+
+    try:
+        # Fetch image from jAccount
+        r = httpx.get(session["qr_url"], timeout=15)
+        if r.status_code != 200:
+            raise HTTPException(502, "Failed to fetch QR image")
+        from fastapi.responses import Response
+        return Response(content=r.content, media_type="image/png")
+    except Exception:
+        raise HTTPException(502, "Failed to fetch QR image")
+
+
+@app.get("/api/auth/qrcode/{uuid}/status")
+def auth_qrcode_status(uuid: str):
+    """Poll QR scan status. Returns status + cookie on success."""
+    from canvas.jaccount import check_qr_status, QRLoginSession, get_jaauth_from_qr
+
+    stored = _qr_sessions.get(uuid)
+    if not stored:
+        raise HTTPException(404, "QR session not found. Please start a new one.")
+
+    session = QRLoginSession(
+        uuid=stored["uuid"],
+        qr_url=stored["qr_url"],
+        cookies=stored["cookies"],
+        status=stored.get("status", "pending"),
+        cookie_str=stored.get("cookie_str", ""),
+    )
+
+    session = check_qr_status(session)
+    stored["status"] = session.status
+    stored["cookie_str"] = session.cookie_str
+
+    result = {"status": session.status}
+
+    if session.status == "confirmed":
+        # Try to get JAAuthCookie
+        final_cookie = get_jaauth_from_qr(session)
+        if final_cookie:
+            result["cookie"] = final_cookie
+            # Auto-save to settings if cookie looks valid
+            cfg = _cfg()
+            cfg["ja_auth_cookie"] = final_cookie
+            _save_settings(cfg)
+
+    return result
+
+
+@app.post("/api/auth/qrcode/{uuid}/save")
+def auth_qrcode_save(uuid: str):
+    """Manually save the QR login cookie to settings."""
+    stored = _qr_sessions.get(uuid)
+    if not stored:
+        raise HTTPException(404, "Session not found")
+    cookie = stored.get("cookie_str", "")
+    if not cookie:
+        raise HTTPException(400, "No cookie available yet")
+    cfg = _cfg()
+    cfg["ja_auth_cookie"] = cookie
+    _save_settings(cfg)
+    return {"ok": True}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # API — Tasks
 # ═══════════════════════════════════════════════════════════════════════════════
 

@@ -85,6 +85,12 @@ export function SettingsModal({ open, onClose }: Props) {
 
   // Test states
   const [videoLoginStatus, setVideoLoginStatus] = useState<'idle' | 'logging_in' | 'done' | 'error'>('idle')
+
+  // QR login state
+  const [qrOpen, setQrOpen] = useState(false)
+  const [qrUuid, setQrUuid] = useState('')
+  const [qrStatus, setQrStatus] = useState('')
+  const [qrPolling, setQrPolling] = useState(false)
   const [llmTestMsg, setLlmTestMsg] = useState('')
   const [asrTestMsg, setAsrTestMsg] = useState('')
 
@@ -153,6 +159,39 @@ export function SettingsModal({ open, onClose }: Props) {
       }, 1500)
     } catch {
       setVideoLoginStatus('error')
+    }
+  }
+
+  async function startQrLogin() {
+    setQrOpen(true)
+    setQrStatus('loading')
+    try {
+      const r = await fetch('/api/auth/qrcode', { method: 'POST' })
+      const data = await r.json()
+      setQrUuid(data.uuid)
+      setQrStatus('pending')
+      // Start polling
+      setQrPolling(true)
+      const poll = setInterval(async () => {
+        const sr = await fetch(`/api/auth/qrcode/${data.uuid}/status`).catch(() => null)
+        if (!sr) return
+        const s = await sr.json()
+        setQrStatus(s.status)
+        if (s.status === 'confirmed') {
+          clearInterval(poll)
+          setQrPolling(false)
+          if (s.cookie) {
+            set('ja_auth_cookie', s.cookie)
+            setQrStatus('done')
+          }
+        }
+        if (s.status === 'expired' || s.status === 'error') {
+          clearInterval(poll)
+          setQrPolling(false)
+        }
+      }, 2000)
+    } catch {
+      setQrStatus('error')
     }
   }
 
@@ -246,6 +285,63 @@ export function SettingsModal({ open, onClose }: Props) {
 
           {!loading && tab === 'video' && (
             <>
+              {/* QR Code Login */}
+              {!qrOpen ? (
+                <button
+                  onClick={startQrLogin}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-dashed border-border hover:border-brand/40 hover:bg-brand-bg text-muted hover:text-brand transition-all font-mono text-xs"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                  扫码登录 jAccount（无需手动复制 Cookie）
+                </button>
+              ) : (
+                <div className="border border-border rounded-xl p-4 space-y-3 bg-surface2 animate-fade-in">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs text-text-mid">jAccount 扫码登录</span>
+                    {qrStatus === 'pending' || qrStatus === 'scanned' ? (
+                      <span className="font-mono text-xs text-brand animate-pulse">
+                        {qrStatus === 'scanned' ? '已扫码，请在手机上确认' : '等待扫码...'}
+                      </span>
+                    ) : qrStatus === 'done' ? (
+                      <span className="font-mono text-xs text-success">已登录 ✓</span>
+                    ) : qrStatus === 'expired' ? (
+                      <span className="font-mono text-xs text-error">二维码已过期</span>
+                    ) : qrStatus === 'error' ? (
+                      <span className="font-mono text-xs text-error">获取失败</span>
+                    ) : null}
+                  </div>
+
+                  {qrStatus !== 'error' && qrUuid && (
+                    <div className="flex justify-center bg-white rounded-lg p-3">
+                      <img
+                        src={`/api/auth/qrcode/${qrUuid}/image`}
+                        alt="jAccount QR Code"
+                        className="w-48 h-48"
+                      />
+                    </div>
+                  )}
+
+                  {(qrStatus === 'expired' || qrStatus === 'error') && (
+                    <button
+                      onClick={startQrLogin}
+                      className="w-full font-mono text-xs px-3 py-2 rounded-lg border border-border text-muted hover:text-brand transition-colors"
+                    >
+                      重新获取二维码
+                    </button>
+                  )}
+                  {qrStatus !== 'done' && qrStatus !== 'expired' && qrStatus !== 'error' && (
+                    <p className="font-mono text-xs text-faint text-center">
+                      使用手机 jAccount 扫描二维码登录
+                    </p>
+                  )}
+                  {qrStatus === 'done' && (
+                    <p className="font-mono text-xs text-success text-center">
+                      Cookie 已自动填入，可点击下方按钮测试登录
+                    </p>
+                  )}
+                </div>
+              )}
+
               <Field label="JAAuthCookie (from logged-in browser)">
                 <div className="relative">
                   <input

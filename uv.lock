@@ -88,6 +88,7 @@ source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "openai" },
     { name = "pypdf" },
     { name = "python-docx" },
@@ -113,6 +114,7 @@ requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
     { name = "fastapi", specifier = ">=0.136.0" },
     { name = "faster-whisper", marker = "extra == 'asr'" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "openai", specifier = ">=2.32.0" },
     { name = "pypdf", specifier = ">=6.10.2" },
     { name = "python-docx", specifier = ">=1.2.0" },
