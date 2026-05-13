@@ -299,7 +299,9 @@ export function SettingsModal({ open, onClose }: Props) {
                 <div className="border border-border rounded-xl p-4 space-y-3 bg-surface2 animate-fade-in">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-xs text-text-mid">jAccount 扫码登录</span>
-                    {qrStatus === 'pending' || qrStatus === 'scanned' ? (
+                    {qrStatus === 'loading' ? (
+                      <span className="font-mono text-xs text-brand animate-pulse">获取二维码...</span>
+                    ) : qrStatus === 'pending' || qrStatus === 'scanned' ? (
                       <span className="font-mono text-xs text-brand animate-pulse">
                         {qrStatus === 'scanned' ? '已扫码，请在手机上确认' : '等待扫码...'}
                       </span>
@@ -311,9 +313,22 @@ export function SettingsModal({ open, onClose }: Props) {
                       <span className="font-mono text-xs text-error">获取失败</span>
                     ) : null}
                   </div>
-                  {qrStatus !== 'error' && qrUuid && (
+                  {qrStatus === 'loading' && (
+                    <div className="flex items-center justify-center bg-white rounded-lg h-48">
+                      <span className="font-mono text-xs text-muted animate-pulse">加载中...</span>
+                    </div>
+                  )}
+                  {qrStatus !== 'error' && qrStatus !== 'loading' && qrUuid && (
                     <div className="flex justify-center bg-white rounded-lg p-3">
-                      <img src={`/api/auth/qrcode/${qrUuid}/image`} alt="QR" className="w-48 h-48" />
+                      <img
+                        src={`/api/auth/qrcode/${qrUuid}/image`}
+                        alt="QR"
+                        className="w-48 h-48"
+                        onError={(e) => {
+                          setQrStatus('error')
+                          e.currentTarget.style.display = 'none'
+                        }}
+                      />
                     </div>
                   )}
                   {(qrStatus === 'expired' || qrStatus === 'error') && (
