@@ -66,8 +66,10 @@ export function VideosTab({
   const [pptDownloaded, setPptDownloaded] = useState<Set<string>>(new Set())
 
   // Live QR monitor
+  const [liveStreams, setLiveStreams] = useState<{ live_id: string; title: string }[]>([])
+  const [liveLoading, setLiveLoading] = useState(false)
   const [monitoring, setMonitoring] = useState(false)
-  const [monitorUrl, setMonitorUrl] = useState('')
+  const [monitorLiveId, setMonitorLiveId] = useState('')
   const [qrDetected, setQrDetected] = useState<{ data: string; time: number } | null>(null)
   const monitorRef = useRef<EventSource | null>(null)
 
@@ -275,15 +277,33 @@ export function VideosTab({
     }
   }
 
-  async function startMonitor() {
-    if (!monitorUrl.trim()) return
+  async function loadLiveStreams() {
+    setLiveLoading(true)
+    try {
+      const r = await fetch(`/api/video/courses/${course.id}/live`)
+      if (r.ok) {
+        const data = await r.json()
+        setLiveStreams(data)
+      } else {
+        setLiveStreams([])
+      }
+    } catch {
+      setLiveStreams([])
+    } finally {
+      setLiveLoading(false)
+    }
+  }
+
+  async function startMonitor(liveId: string) {
+    if (!liveId) return
     setMonitoring(true)
+    setMonitorLiveId(liveId)
     setQrDetected(null)
     try {
       await fetch('/api/live/monitor/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stream_url: monitorUrl }),
+        body: JSON.stringify({ course_id: course.id, live_id: liveId }),
       })
       const es = new EventSource('/api/live/monitor/stream')
       monitorRef.current = es
@@ -292,13 +312,13 @@ export function VideosTab({
           const event = JSON.parse(e.data)
           if (event.type === 'qr_detected') {
             setQrDetected({ data: event.data, time: event.timestamp })
-            pushToast({ type: 'info', message: `QR 检测: ${event.data.slice(0, 40)}...` })
+            pushToast({ type: 'success', message: `检测到二维码，请扫描!` })
           }
         } catch {}
       }
-      es.onerror = () => { /* reconnect handled by browser */ }
+      es.onerror = () => { /* reconnect */ }
     } catch (e: unknown) {
-      pushToast({ type: 'error', message: `Monitor start failed: ${e instanceof Error ? e.message : String(e)}` })
+      pushToast({ type: 'error', message: `监控启动失败` })
       setMonitoring(false)
     }
   }
@@ -346,30 +366,47 @@ export function VideosTab({
 
       {/* Live QR Monitor Panel */}
       <div className="border-b border-border/50 bg-surface2/50">
-        <div className="px-4 sm:px-6 py-2.5 flex items-center gap-3 flex-wrap">
-          <span className="font-mono text-xs text-text-mid flex items-center gap-1.5">
-            <Radio size={12} className={monitoring ? 'text-brand animate-pulse' : 'text-muted'} />
-            直播 QR 监控
-          </span>
-          <input
-            type="text"
-            value={monitorUrl}
-            onChange={e => setMonitorUrl(e.target.value)}
-            placeholder="电脑录屏 FLV 流 URL ..."
-            disabled={monitoring}
-            className="flex-1 min-w-[200px] bg-surface border border-border rounded-lg px-3 py-1.5 font-mono text-xs text-text placeholder:text-faint focus:outline-none focus:border-brand/50 disabled:opacity-50 transition-all"
-          />
-          {!monitoring ? (
-            <Button variant="primary" size="sm" onClick={startMonitor} disabled={!monitorUrl.trim()}>
-              <Radio size={12} /> 开始监控
-            </Button>
-          ) : (
-            <Button variant="danger" size="sm" onClick={stopMonitor}>
-              <Square size={12} /> 停止
-            </Button>
+        <div className="px-4 sm:px-6 py-2.5 space-y-2">
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-xs text-text-mid flex items-center gap-1.5">
+              <Radio size={12} className={monitoring ? 'text-brand animate-pulse' : 'text-muted'} />
+              直播 QR 监控{monitoring ? ' 运行中...' : ''}
+            </span>
+            {!monitoring ? (
+              <Button variant="ghost" size="sm" onClick={loadLiveStreams} loading={liveLoading}>
+                <Radio size={12} /> 获取直播列表
+              </Button>
+            ) : (
+              <Button variant="danger" size="sm" onClick={stopMonitor}>
+                <Square size={12} /> 停止监控
+              </Button>
+            )}
+            {monitorLiveId && monitoring && (
+              <Badge variant="default">{monitorLiveId}</Badge>
+            )}
+          </div>
+
+          {/* Live stream list */}
+          {!monitoring && liveStreams.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {liveStreams.map(ls => (
+                <button
+                  key={ls.live_id}
+                  onClick={() => startMonitor(ls.live_id)}
+                  className="font-mono text-xs px-3 py-1.5 rounded-lg border border-border hover:border-brand/40 hover:text-brand transition-all text-left"
+                >
+                  <Radio size={10} className="inline mr-1.5" />
+                  {ls.title || ls.live_id}
+                </button>
+              ))}
+            </div>
           )}
+          {!monitoring && !liveLoading && liveStreams.length === 0 && (
+            <p className="font-mono text-xs text-faint">点击"获取直播列表"加载可监控的直播</p>
+          )}
+
           {qrDetected && (
-            <div className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-warning-bg border border-warning/30 animate-fade-in">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-warning-bg border border-warning/30 animate-fade-in">
               <span className="font-mono text-xs text-warning font-medium">检测到二维码:</span>
               <code className="font-mono text-xs text-text flex-1 truncate">{qrDetected.data}</code>
               <span className="font-mono text-xs text-faint shrink-0">

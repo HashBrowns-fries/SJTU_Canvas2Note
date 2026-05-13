@@ -311,6 +311,19 @@ def list_video_videos(course_id: int):
     return vc.list_course_videos(course_id)
 
 
+@app.get("/api/video/courses/{course_id}/live")
+def list_live_streams(course_id: int):
+    """List live streams using the old video client (External Tool 9487)."""
+    from canvas.video_client import SJTUOldVideoClient
+    cfg = _cfg()
+    try:
+        client = SJTUOldVideoClient(ja_auth_cookie=cfg.get("ja_auth_cookie", ""))
+        live_list = client.get_live_list(course_id)
+        return [{"live_id": lid, "title": info.get("title", lid)} for lid, info in live_list.items()]
+    except Exception as e:
+        raise HTTPException(500, f"获取直播列表失败: {e}")
+
+
 @app.post("/api/video/download")
 def start_video_download(body: dict, background_tasks: BackgroundTasks):
     from canvas.video_client import VideoClient
@@ -1004,12 +1017,13 @@ _live_queues: list[_queue.Queue] = []  # list of queues for SSE subscribers
 
 
 class LiveMonitorRequest(BaseModel):
-    stream_url: str
+    course_id: int
+    live_id: str
 
 
 @app.post("/api/live/monitor/start")
 def live_monitor_start(body: LiveMonitorRequest):
-    """Start monitoring a live FLV stream for QR codes."""
+    """Start monitoring a course's live screen stream for QR codes."""
     global _live_monitor
     from live_monitor import LiveQRMonitor
 
@@ -1023,13 +1037,19 @@ def live_monitor_start(body: LiveMonitorRequest):
             except _queue.Full:
                 pass
 
+    cfg = _cfg()
     _live_monitor = LiveQRMonitor(
-        stream_url=body.stream_url,
+        course_id=body.course_id,
+        live_id=body.live_id,
+        ja_auth_cookie=cfg.get("ja_auth_cookie", ""),
         on_qr_detected=_on_qr,
-        check_interval=2.0,
+        check_interval=3.0,
     )
     _live_monitor.start()
-    return {"status": "monitoring", "stream_url": body.stream_url}
+    return {
+        "status": "monitoring",
+        "screen_url": _live_monitor.get_screen_url(),
+    }
 
 
 @app.post("/api/live/monitor/stop")
