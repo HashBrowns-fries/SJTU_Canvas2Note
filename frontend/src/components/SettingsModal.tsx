@@ -96,14 +96,19 @@ export function SettingsModal({ open, onClose }: Props) {
 
   const overlayRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!open) return
+  function refreshSettings() {
     fetch('/api/settings')
       .then(r => r.json())
       .then((s: Settings) => setSettings(prev => ({ ...prev, ...s })))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [open])
+  }
+
+  useEffect(() => {
+    if (!open) return
+    setLoading(true)
+    refreshSettings()
+  }, [open, tab])
 
   useEffect(() => {
     if (!open) return
