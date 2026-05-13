@@ -71,13 +71,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - name: Build Tauri (macOS)
-        run: npx tauri build
+        run: npx tauri build --bundles app,dmg || npx tauri build --bundles app
       - uses: actions/upload-artifact@v4
         with:
           name: canvas2note-macos
           path: |
             frontend/src-tauri/target/release/bundle/dmg/*.dmg
-            frontend/src-tauri/target/release/bundle/macos/*.app
+            frontend/src-tauri/target/release/bundle/macos/**/*.app/**
           if-no-files-found: warn
 
   release:
