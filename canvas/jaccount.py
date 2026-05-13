@@ -163,7 +163,12 @@ def get_qr_code() -> Optional[QRLoginSession]:
 
 
 def _complete_login(session: QRLoginSession, redirect_url: str, cookies: dict):
-    """Follow the LOGIN redirect to get final session cookies."""
+    """
+    Follow LOGIN redirect chain to get JAAuthCookie.
+
+    expresslogin redirects through jAccount to courses.sjtu.edu.cn OAuth callback.
+    We follow the full chain and extract JAAuthCookie as used by video_client.
+    """
     sess = requests.Session()
     for k, v in cookies.items():
         sess.cookies.set(k, v)
@@ -172,32 +177,38 @@ def _complete_login(session: QRLoginSession, redirect_url: str, cookies: dict):
     })
 
     try:
-        # Follow the expresslogin redirect
-        r = sess.get(redirect_url, timeout=15, allow_redirects=True)
+        # Follow expresslogin → jAccount → courses OAuth callback
+        url = redirect_url
+        for _ in range(10):
+            r = sess.get(url, timeout=15, allow_redirects=False)
+            if r.status_code in (301, 302, 303, 307, 308) and "Location" in r.headers:
+                url = r.headers["Location"]
+            else:
+                break
 
-        # Collect all cookies
+        # Collect all cookies from all domains
         cookie_dict = {}
         for c in sess.cookies:
             cookie_dict[c.name] = c.value
-        for hist in r.history:
-            for c in hist.cookies:
-                cookie_dict[c.name] = c.value
         for k, v in cookies.items():
-            cookie_dict[k] = v
+            if k not in cookie_dict:
+                cookie_dict[k] = v
 
-        parts = [f"{k}={v}" for k, v in cookie_dict.items()]
-        session.cookie_str = "; ".join(parts)
+        # The video_client needs raw JAAuthCookie value
+        # JAAuthCookie is set on my.sjtu.edu.cn / jaccount.sjtu.edu.cn after full login
+        ja_auth = cookie_dict.get("JAAuthCookie", "")
 
-        # Also visit my.sjtu.edu.cn for JAAuthCookie specifically
-        r2 = sess.get("https://my.sjtu.edu.cn", timeout=10, allow_redirects=True)
-        for c in sess.cookies:
-            cookie_dict[c.name] = c.value
-        for hist in r2.history:
-            for c in hist.cookies:
+        if not ja_auth:
+            # Try visiting my.sjtu.edu.cn to trigger JAAuthCookie
+            r2 = sess.get("https://my.sjtu.edu.cn", timeout=10, allow_redirects=True)
+            for c in sess.cookies:
                 cookie_dict[c.name] = c.value
+            ja_auth = cookie_dict.get("JAAuthCookie", "")
 
-        parts = [f"{k}={v}" for k, v in cookie_dict.items()]
-        session.cookie_str = "; ".join(parts)
+        # Use JAAuthCookie value directly (what video_client expects)
+        session.cookie_str = ja_auth if ja_auth else "; ".join(
+            f"{k}={v}" for k, v in cookie_dict.items()
+        )
 
     except requests.RequestException:
         pass
