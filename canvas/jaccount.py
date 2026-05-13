@@ -1,162 +1,199 @@
 """
-jAccount QR code login for SJTU authentication.
+jAccount QR code login via WebSocket-based QR flow.
 
 Flow:
-  1. GET /jaccount/qrcode  → parse UUID + get session cookie
-  2. Show QR image to user
-  3. Poll /jaccount/qrstatus?uuid=xxx → wait for scan
-  4. On success → follow redirect → get JAAuthCookie
+  1. OAuth redirect chain → landing at jaccount/jalogin page
+  2. Parse UUID + WebSocket sub token from page JavaScript
+  3. Connect WebSocket to /jaccount/sub/{token}, send UPDATE_QR_CODE
+  4. Receive ts + sig, build QR image URL: /jaccount/qrcode?uuid=xxx&ts=xxx&sig=xxx
+  5. Poll login status
+  6. On confirm → extract cookies
 """
 import re
+import json
 import time
 import requests
-from dataclasses import dataclass
+import websocket
+from dataclasses import dataclass, field
 from typing import Optional
-
-JACCOUNT_BASE = "https://jaccount.sjtu.edu.cn"
-
-# Cookie names that Canvas2Note needs from the jAccount session
-TARGET_COOKIES = ["JAAuthCookie", "JSESSIONID"]
 
 
 @dataclass
 class QRLoginSession:
-    uuid: str
-    qr_url: str
-    cookies: dict
-    status: str = "pending"       # pending | scanned | confirmed | expired | error
-    cookie_str: str = ""          # final cookie string after success
+    uuid: str = ""
+    qr_url: str = ""
+    cookies: dict = field(default_factory=dict)
+    status: str = "pending"
+    cookie_str: str = ""
+
+
+def _follow_redirects(sess: requests.Session, start_url: str, max_hops: int = 10) -> requests.Response:
+    url = start_url
+    for _ in range(max_hops):
+        r = sess.get(url, timeout=15, allow_redirects=False)
+        if r.status_code == 200:
+            return r
+        if "Location" not in r.headers:
+            break
+        url = r.headers["Location"]
+    return r
 
 
 def get_qr_code() -> Optional[QRLoginSession]:
     """
-    Fetch jAccount QR code login page, extract UUID and session cookies.
-    Returns QRLoginSession on success, None on failure.
+    Initiate jAccount OAuth flow, connect WebSocket, get QR code URL.
     """
     sess = requests.Session()
     sess.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                       "KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     })
 
     try:
-        # Step 1: Visit login page to get initial cookies
-        login_url = f"{JACCOUNT_BASE}/jaccount/login"
-        r = sess.get(login_url, timeout=10)
-        r.raise_for_status()
+        # Step 1: Follow OAuth redirects to jAccount login page
+        r = _follow_redirects(
+            sess, "https://courses.sjtu.edu.cn/app/oauth/2.0/login?login_type=outer"
+        )
+        if r.status_code != 200:
+            return None
 
-        # Step 2: Request QR code page
-        qr_url = f"{JACCOUNT_BASE}/jaccount/qrcode"
-        r = sess.get(qr_url, timeout=10)
-        r.raise_for_status()
         html = r.text
 
-        # Step 3: Extract UUID from the page
-        # jAccount QR page contains a UUID for this QR session
-        uuid_match = re.search(r'uuid["\s:=]+["\']?([a-f0-9\-]{20,})["\']?', html, re.I)
-        if not uuid_match:
-            # Alternative: try to find it in JavaScript or a meta tag
-            uuid_match = re.search(r'([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})', html)
-        if not uuid_match:
-            # Try a looser pattern — jAccount sometimes uses shorter UUIDs
-            uuid_match = re.search(r'uuid\s*=\s*["\']([^"\']{10,})["\']', html)
+        # Step 2: Extract UUID and WebSocket sub token from page JS
+        uuid_match = re.search(r'uuid:\s*"([a-f0-9\-]{30,})"', html)
+        sub_match = re.search(r'/jaccount/sub/([a-f0-9\-]{30,})', html)
 
-        if not uuid_match:
+        if not uuid_match or not sub_match:
             return None
 
         uuid = uuid_match.group(1)
+        sub_token = sub_match.group(1)
 
-        # Step 4: Build QR image URL
-        qr_img_url = f"{JACCOUNT_BASE}/jaccount/qrimg?uuid={uuid}"
+        # Step 3: WebSocket URL is /jaccount/sub/{token}
+        from urllib.parse import urlparse
+        parsed = urlparse(r.url)
+        ws_url = f"wss://{parsed.netloc}/jaccount/sub/{sub_token}"
 
-        # Step 5: Collect cookies from this session
-        cookies = dict(sess.cookies)
+        # Step 4: Collect cookies
+        cookie_dict = {}
+        for c in sess.cookies:
+            cookie_dict[c.name] = c.value
+
+        # Step 5: Connect WebSocket to get ts + sig
+        ts, sig = _ws_get_qr_params(ws_url, cookie_dict)
+
+        # Step 6: Build QR image URL
+        if ts and sig:
+            qr_url = (
+                f"https://jaccount.sjtu.edu.cn/jaccount/qrcode"
+                f"?uuid={uuid}&ts={ts}&sig={sig}"
+            )
+        else:
+            qr_url = ""
 
         return QRLoginSession(
             uuid=uuid,
-            qr_url=qr_img_url,
-            cookies=cookies,
+            qr_url=qr_url,
+            cookies=cookie_dict,
         )
 
     except requests.RequestException:
         return None
 
 
+def _ws_get_qr_params(ws_url: str, cookies: dict) -> tuple:
+    """
+    Connect to jAccount WebSocket, send UPDATE_QR_CODE, receive ts + sig.
+    Returns (ts, sig) or ("", "").
+    """
+    try:
+        cookie_header = "; ".join(f"{k}={v}" for k, v in cookies.items())
+
+        ws = websocket.create_connection(
+            ws_url,
+            timeout=10,
+            header={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                               "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Cookie": cookie_header,
+                "Origin": "https://jaccount.sjtu.edu.cn",
+            },
+        )
+
+        ws.send(json.dumps({"type": "UPDATE_QR_CODE"}))
+        ws.settimeout(10)
+
+        ts, sig = "", ""
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            try:
+                data = ws.recv()
+                msg = json.loads(data)
+                if msg.get("type") == "UPDATE_QR_CODE":
+                    payload = msg.get("payload", {})
+                    ts = str(payload.get("ts", ""))
+                    sig = payload.get("sig", "")
+                    break
+            except websocket.WebSocketTimeoutException:
+                continue
+
+        ws.close()
+        return ts, sig
+
+    except Exception:
+        return "", ""
+
+
 def check_qr_status(session: QRLoginSession) -> QRLoginSession:
-    """
-    Poll jAccount to check if the QR code has been scanned.
-    Updates session.status and session.cookie_str on success.
-    """
+    """Poll jAccount to check if QR code was scanned and confirmed."""
     sess = requests.Session()
-    sess.cookies.update(session.cookies)
+    for k, v in session.cookies.items():
+        sess.cookies.set(k, v)
     sess.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                       "KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": f"{JACCOUNT_BASE}/jaccount/qrcode",
-        "Accept": "application/json, text/plain, */*",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://jaccount.sjtu.edu.cn/jaccount/jalogin",
+        "Accept": "application/json, text/javascript, */*; q=0.01",
     })
 
     try:
-        status_url = f"{JACCOUNT_BASE}/jaccount/qrstatus"
-        r = sess.get(status_url, params={"uuid": session.uuid}, timeout=10)
-
-        if r.status_code != 200:
-            # Try alternative endpoint
-            r = sess.get(
-                f"{JACCOUNT_BASE}/jaccount/ajax/qrlogin",
-                params={"uuid": session.uuid},
-                timeout=10,
-            )
-
+        r = sess.get(
+            "https://jaccount.sjtu.edu.cn/jaccount/ajax/jalogin",
+            params={"uuid": session.uuid},
+            timeout=10,
+        )
         text = r.text.lower()
 
-        # Parse status from response
-        if any(kw in text for kw in ["confirmed", "success", '"status":1', '"status":"1"']):
+        if any(kw in text for kw in ["success", "confirmed", '"retcode":0']):
             session.status = "confirmed"
-            # Extract all cookies from the final session
-            all_cookies = dict(sess.cookies)
-            # Also include the original session cookies
-            all_cookies.update(session.cookies)
+            cookie_dict = {}
+            for c in sess.cookies:
+                cookie_dict[c.name] = c.value
+            for k, v in session.cookies.items():
+                cookie_dict[k] = v
+            parts = [f"{k}={v}" for k, v in cookie_dict.items()]
+            session.cookie_str = "; ".join(parts)
 
-            # Build cookie string for settings
-            cookie_parts = []
-            for name, value in all_cookies.items():
-                cookie_parts.append(f"{name}={value}")
-            # Also try to get cookies from the redirect response
-            if r.history:
-                for hist_resp in r.history:
-                    for name, value in dict(hist_resp.cookies).items():
-                        cookie_parts.append(f"{name}={value}")
-
-            session.cookie_str = "; ".join(cookie_parts)
-
-        elif any(kw in text for kw in ["scanned", "scan", "waiting", "pending"]):
-            session.status = "scanned" if "scanned" in text else "pending"
+        elif "scanned" in text:
+            session.status = "scanned"
         elif any(kw in text for kw in ["expired", "timeout", "invalid"]):
             session.status = "expired"
-        else:
-            session.status = "pending"
 
     except requests.RequestException:
-        session.status = "error"
+        pass
 
     return session
 
 
 def get_jaauth_from_qr(session: QRLoginSession) -> str:
-    """
-    After QR confirmation, try to get the JAAuthCookie by
-    visiting the my.sjtu.edu.cn portal which sets the cookie.
-    """
-    if session.status != "confirmed":
-        return ""
+    """After QR confirmation, visit my.sjtu.edu.cn to get the full cookie set."""
+    if session.status != "confirmed" or not session.cookie_str:
+        return session.cookie_str
 
     sess = requests.Session()
     sess.headers.update({
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     })
 
-    # Parse cookies from the QR session
     for part in session.cookie_str.split(";"):
         part = part.strip()
         if "=" in part:
@@ -164,17 +201,14 @@ def get_jaauth_from_qr(session: QRLoginSession) -> str:
             sess.cookies.set(name.strip(), value.strip())
 
     try:
-        # Visit my.sjtu.edu.cn which should set JAAuthCookie
         r = sess.get("https://my.sjtu.edu.cn", timeout=10, allow_redirects=True)
-
-        # Collect all cookies
-        all_cookies = dict(sess.cookies)
+        cookie_dict = {}
+        for c in sess.cookies:
+            cookie_dict[c.name] = c.value
         for hist in r.history:
-            all_cookies.update(dict(hist.cookies))
-
-        # Build final cookie string
-        parts = [f"{k}={v}" for k, v in all_cookies.items()]
+            for c in hist.cookies:
+                cookie_dict[c.name] = c.value
+        parts = [f"{k}={v}" for k, v in cookie_dict.items()]
         return "; ".join(parts)
-
     except requests.RequestException:
         return session.cookie_str

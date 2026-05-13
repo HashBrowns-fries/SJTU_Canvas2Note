@@ -945,10 +945,13 @@ def auth_qrcode_image(uuid: str):
         raise HTTPException(404, "QR session not found or expired")
 
     try:
-        # Fetch image from jAccount
-        r = httpx.get(session["qr_url"], timeout=15)
+        if not session.get("qr_url"):
+            raise HTTPException(502, "QR code URL not available — WebSocket connection may have failed")
+        # QR URL already includes ts + sig, just need cookies for auth
+        cookies = session.get("cookies", {})
+        r = httpx.get(session["qr_url"], cookies=cookies, timeout=15)
         if r.status_code != 200:
-            raise HTTPException(502, "Failed to fetch QR image")
+            raise HTTPException(502, f"QR image fetch failed (HTTP {r.status_code})")
         from fastapi.responses import Response
         return Response(content=r.content, media_type="image/png")
     except Exception:
