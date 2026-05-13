@@ -280,19 +280,15 @@ export function SettingsModal({ open, onClose }: Props) {
                 </div>
                 <p className="field-hint">Canvas → Account → Settings → New Access Token</p>
               </Field>
-            </>
-          )}
 
-          {!loading && tab === 'video' && (
-            <>
-              {/* QR Code Login */}
+              {/* jAccount QR Login */}
               {!qrOpen ? (
                 <button
                   onClick={startQrLogin}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-dashed border-border hover:border-brand/40 hover:bg-brand-bg text-muted hover:text-brand transition-all font-mono text-xs"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-dashed border-brand/20 hover:border-brand/50 hover:bg-brand-bg text-muted hover:text-brand transition-all font-mono text-xs"
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-                  扫码登录 jAccount（无需手动复制 Cookie）
+                  扫码登录 jAccount
                 </button>
               ) : (
                 <div className="border border-border rounded-xl p-4 space-y-3 bg-surface2 animate-fade-in">
@@ -310,38 +306,24 @@ export function SettingsModal({ open, onClose }: Props) {
                       <span className="font-mono text-xs text-error">获取失败</span>
                     ) : null}
                   </div>
-
                   {qrStatus !== 'error' && qrUuid && (
                     <div className="flex justify-center bg-white rounded-lg p-3">
-                      <img
-                        src={`/api/auth/qrcode/${qrUuid}/image`}
-                        alt="jAccount QR Code"
-                        className="w-48 h-48"
-                      />
+                      <img src={`/api/auth/qrcode/${qrUuid}/image`} alt="QR" className="w-48 h-48" />
                     </div>
                   )}
-
                   {(qrStatus === 'expired' || qrStatus === 'error') && (
-                    <button
-                      onClick={startQrLogin}
-                      className="w-full font-mono text-xs px-3 py-2 rounded-lg border border-border text-muted hover:text-brand transition-colors"
-                    >
-                      重新获取二维码
-                    </button>
-                  )}
-                  {qrStatus !== 'done' && qrStatus !== 'expired' && qrStatus !== 'error' && (
-                    <p className="font-mono text-xs text-faint text-center">
-                      使用手机 jAccount 扫描二维码登录
-                    </p>
+                    <button onClick={startQrLogin} className="w-full font-mono text-xs px-3 py-2 rounded-lg border border-border text-muted hover:text-brand transition-colors">重新获取二维码</button>
                   )}
                   {qrStatus === 'done' && (
-                    <p className="font-mono text-xs text-success text-center">
-                      Cookie 已自动填入，可点击下方按钮测试登录
-                    </p>
+                    <p className="font-mono text-xs text-success text-center">Cookie 已自动保存，jAccount 已就绪</p>
                   )}
                 </div>
               )}
+            </>
+          )}
 
+          {!loading && tab === 'video' && (
+            <>
               <Field label="JAAuthCookie (from logged-in browser)">
                 <div className="relative">
                   <input
