@@ -52,8 +52,9 @@ def get_qr_code() -> Optional[QRLoginSession]:
     })
 
     try:
+        # Start from my.sjtu.edu.cn (portal) to get JAAuthCookie after login
         r = _follow_redirects(
-            sess, "https://courses.sjtu.edu.cn/app/oauth/2.0/login?login_type=outer"
+            sess, "https://my.sjtu.edu.cn"
         )
         if r.status_code != 200:
             return None
