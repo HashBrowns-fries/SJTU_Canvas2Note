@@ -32,7 +32,6 @@ import {
   RefreshCw,
   Menu,
   MessageSquare,
-  type LucideIcon,
 } from 'lucide-react'
 
 export const Icons = {
@@ -70,50 +69,3 @@ export const Icons = {
   Menu,
   MessageSquare,
 } as const
-
-/** Map old emoji → Lucide icon */
-export function emojiIcon(emoji: string): LucideIcon {
-  const map: Record<string, LucideIcon> = {
-    '◈': Sparkles,
-    '◧': LayoutPanelLeft,
-    '▤': FolderOpen,
-    '▶': Play,
-    '◎': Mic,
-    '↓': Download,
-    '✕': X,
-    '✎': Pencil,
-    '✓': Check,
-    '…': Loader2,
-    '⟳': Loader2,
-    '←': ArrowLeft,
-    '→': ArrowRight,
-    '▲': ChevronUp,
-    '▼': ChevronDown,
-    '▸': ChevronRight,
-    '›': ChevronRight,
-    '🖼': Image,
-    '📄': FileText,
-    '📊': BarChart3,
-    '📝': FileEdit,
-    '🎬': Film,
-    '🎵': Music,
-    '📦': FileArchive,
-    '📁': Folder,
-    '📎': File,
-    '📂': Folder,
-    '☰': Menu,
-    '✏': Pencil,
-    '🗑': Trash2,
-    '👁': Search,
-    '+': Plus,
-    '↺': RefreshCw,
-    '⏎': ChevronRight,
-    '○': Search,
-    '▣': Folder,
-    '▢': Folder,
-    '◻': File,
-  }
-  return map[emoji] ?? File
-}
-
-export type IconName = keyof typeof Icons

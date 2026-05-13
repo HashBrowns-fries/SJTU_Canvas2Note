@@ -16,8 +16,9 @@ import os
 import subprocess
 import sys
 import time
-import urllib.request
 import urllib.error
+import urllib.parse
+import urllib.request
 import numpy as np
 from pathlib import Path
 
@@ -196,7 +197,6 @@ def cmd_generate_notes(
     print(f"生成笔记 '{transcript_name or course_name}' …", file=sys.stderr)
 
     # SSE streaming — collect delta
-    import urllib.request
     url = f"{BASE_URL}/notes/generate"
     data = json.dumps(body).encode()
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
@@ -253,7 +253,6 @@ def cmd_chat(
     """
     与 LLM 对话。messages 为 JSON 字符串列表，格式：{"role": "user"/"assistant", "content": "..."}
     """
-    import urllib.request
     parsed_msgs = [json.loads(m) for m in messages]
     body = {"messages": parsed_msgs, "context_note": context_note}
     url = f"{BASE_URL}/chat"
@@ -676,5 +675,5 @@ def main():
 
 
 if __name__ == "__main__":
-    import urllib.parse  # used by get-transcript
+
     main()

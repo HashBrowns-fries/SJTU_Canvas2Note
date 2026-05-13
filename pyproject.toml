@@ -23,7 +23,6 @@ asr = [
     "torch>=2.3.0",
 ]
 funasr = [
-    "modelscope>=1.36.0",
     "torch>=2.3.0",
 ]
 

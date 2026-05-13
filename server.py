@@ -37,10 +37,10 @@ DEFAULTS = {
     "llm_base_url":    DEFAULT_LLM_BASE,
     "llm_api_key":     DEFAULT_LLM_KEY,
     "llm_model":       DEFAULT_LLM_MODEL,
-    "asr_model":       "iic/SenseVoiceSmall",
-    "asr_engine":      "funasr",  # faster-whisper / funasr / api
-    "asr_device":      "cuda",   # cuda / cpu（仅 faster-whisper 模式有效）
-    "asr_language":    "German",   # Qwen3-ASR / faster-whisper 语言：German / Chinese / English / auto 等
+    "asr_model":       "base",
+    "asr_engine":      "api",
+    "asr_device":      "cuda",
+    "asr_language":    "auto",
     "asr_api_base":    "",
     "asr_api_key":     "",
     "asr_api_model":   "whisper-1",
@@ -263,7 +263,6 @@ def start_download(body: dict):
 
 
 def _do_download(tid: str, body: dict):
-    import asyncio
     async def _run():
         from canvas.client import CanvasClient
         cfg = _cfg()
@@ -294,7 +293,6 @@ def video_login(background_tasks: BackgroundTasks):
 
 
 def _do_video_login(tid: str, cookie: str):
-    import asyncio
     async def _run():
         from canvas.video_client import VideoClient
         cfg = _cfg()
@@ -316,7 +314,6 @@ def list_video_videos(course_id: int):
 @app.post("/api/video/download")
 def start_video_download(body: dict, background_tasks: BackgroundTasks):
     from canvas.video_client import VideoClient
-    import asyncio
     cfg = _cfg()
     tid = make_task("video")
     tasks[tid].update({
@@ -331,7 +328,6 @@ def start_video_download(body: dict, background_tasks: BackgroundTasks):
 
 
 def _do_video_download(tid: str, body: dict, cookie: str):
-    import asyncio
     async def _run():
         from canvas.video_client import VideoClient
         cfg = _cfg()
@@ -345,7 +341,7 @@ def _do_video_download(tid: str, body: dict, cookie: str):
         out_dir = DOWNLOAD_DIR / course_name
         out_dir.mkdir(parents=True, exist_ok=True)
         tasks[tid]["status"] = "downloading"
-        await vc.download_video(course_id, video_id, title, str(out_dir), play_index=play_index)
+        await vc.download_video(video_id, out_dir / f"{title}.mp4", title=title, play_index=play_index or -1)
         tasks[tid]["status"] = "done"
         tasks[tid]["result"] = f"Downloaded: {title}"
     asyncio.run(_run())
@@ -379,7 +375,6 @@ def batch_transcribe(req: BatchTranscribeRequest, background_tasks: BackgroundTa
 
 
 def _do_batch_transcribe(tid: str, items: list[dict], delete_video: bool):
-    import asyncio, shutil
     async def _run():
         from canvas.video_client import VideoClient
         from asr.transcriber import transcribe_video
@@ -435,7 +430,6 @@ def _do_batch_transcribe(tid: str, items: list[dict], delete_video: bool):
 @app.get("/api/video/ppt")
 def list_ppt(cour_id: str, course_id: int):
     from canvas.video_client import VideoClient
-    import asyncio
     cfg = _cfg()
     vc = VideoClient(ja_auth_cookie=cfg.get("ja_auth_cookie", ""))
     return vc.list_ppt_slides(cour_id, course_id)
@@ -444,7 +438,6 @@ def list_ppt(cour_id: str, course_id: int):
 @app.post("/api/video/ppt/download")
 def download_ppt(body: dict, background_tasks: BackgroundTasks):
     from canvas.video_client import VideoClient
-    import asyncio
     cfg = _cfg()
     tid = make_task("ppt")
     tasks[tid]["status"] = "running"
@@ -572,7 +565,6 @@ def serve_slide(course_name: str, title: str, filename: str):
         target.resolve().relative_to(DOWNLOAD_DIR.resolve())
     except ValueError:
         raise HTTPException(403, "Access denied")
-    import mimetypes
     ext = filename.rsplit(".", 1)[-1].lower()
     mt = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(ext, "application/octet-stream")
     from fastapi.responses import FileResponse
@@ -745,6 +737,33 @@ def save_note(course: str, filename: str, body: dict):
     return {"ok": True}
 
 
+@app.delete("/api/notes/{course}/{filename}")
+def delete_note(course: str, filename: str):
+    path = NOTES_DIR / course / filename
+    if not path.exists():
+        raise HTTPException(404, "Not found")
+    path.unlink()
+    return {"ok": True}
+
+
+class RenameNoteRequest(BaseModel):
+    course: str
+    old_filename: str
+    new_filename: str
+
+
+@app.post("/api/notes/rename")
+def rename_note(body: RenameNoteRequest):
+    src = NOTES_DIR / body.course / body.old_filename
+    if not src.exists():
+        raise HTTPException(404, "Not found")
+    dst = NOTES_DIR / body.course / body.new_filename
+    if dst.exists():
+        raise HTTPException(409, "A note with that name already exists")
+    src.rename(dst)
+    return {"ok": True, "filename": body.new_filename}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # API — LLM Chat
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -808,7 +827,6 @@ def get_chat_history(conversation_id: str):
     path = CHATS_DIR / f"{conversation_id}.json"
     if not path.exists():
         return {"messages": []}
-    import json
     data = json.loads(path.read_text(encoding="utf-8"))
     return {"messages": data.get("messages", [])}
 
@@ -817,7 +835,6 @@ def get_chat_history(conversation_id: str):
 def save_chat_history(body: ChatHistoryRequest):
     CHATS_DIR.mkdir(parents=True, exist_ok=True)
     path = CHATS_DIR / f"{body.conversation_id}.json"
-    import json
     path.write_text(json.dumps({"messages": body.messages}, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"ok": True}
 
