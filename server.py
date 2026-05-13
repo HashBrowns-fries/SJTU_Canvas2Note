@@ -293,14 +293,15 @@ def video_login(background_tasks: BackgroundTasks):
 
 
 def _do_video_login(tid: str, cookie: str):
-    async def _run():
-        from canvas.video_client import VideoClient
-        cfg = _cfg()
-        vc = VideoClient(ja_auth_cookie=cookie)
-        await vc.login()
+    from canvas.video_client import VideoClient
+    cfg = _cfg()
+    vc = VideoClient(ja_auth_cookie=cookie)
+    if vc.login():
         tasks[tid]["status"] = "done"
         tasks[tid]["result"] = "Login OK"
-    asyncio.run(_run())
+    else:
+        tasks[tid]["status"] = "error"
+        tasks[tid]["error"] = "Login failed — check cookie or network"
 
 
 @app.get("/api/video/courses/{course_id}/videos")
