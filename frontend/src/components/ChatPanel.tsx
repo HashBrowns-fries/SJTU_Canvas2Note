@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import {
   Menu, Sparkles, Trash2, Search, ChevronRight, X,
 } from 'lucide-react'
@@ -231,7 +233,8 @@ export function ChatPanel({ conversationId, contextNote }: Props) {
                 </p>
               ) : (
                 <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
+                  remarkPlugins={[remarkGfm, remarkMath]}
+                  rehypePlugins={[rehypeKatex]}
                   className="markdown-body font-mono text-xs leading-relaxed"
                 >
                   {m.content + (i === messages.length - 1 && streaming ? '█' : '')}

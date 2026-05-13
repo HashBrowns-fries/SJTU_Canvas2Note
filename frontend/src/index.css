@@ -471,6 +471,22 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
    Utility
    ═══════════════════════════════════════════════════════════════════════════════ */
 
+/* ═══════════════════════════════════════════════════════════════════════════════
+   KaTeX Math (formula rendering in notes / chat)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.katex { font-size: 1.05em !important; }
+.katex-display { overflow-x: auto; overflow-y: hidden; }
+
+.dark .katex { color: var(--text); }
+.dark .katex .mord { color: var(--text); }
+.dark .katex .mbin { color: var(--brand); }
+.dark .katex .mrel { color: var(--accent); }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   Utility
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
 .sr-only {
   position: absolute; width: 1px; height: 1px;
   padding: 0; margin: -1px; overflow: hidden;

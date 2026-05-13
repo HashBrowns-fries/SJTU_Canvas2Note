@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import { Sparkles, Plus, Pencil, Trash2, Check, Loader2, X } from 'lucide-react'
 import { api, streamSSE } from '../api'
 import { pushToast } from './Toast'
@@ -289,7 +291,7 @@ export function NotesTab({ course }: Props) {
               ) : view === 'preview' ? (
                 <div className="h-full overflow-y-auto p-6 sm:p-8 paper-bg">
                   <div className="prose-notes max-w-2xl mx-auto">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{content}</ReactMarkdown>
                   </div>
                 </div>
               ) : (
