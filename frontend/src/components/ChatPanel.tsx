@@ -1,16 +1,21 @@
 import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import {
+  Menu, Sparkles, Trash2, Search, ChevronRight, X,
+} from 'lucide-react'
 import { streamChat } from '../api'
 import { useAutoScroll } from '../hooks'
+import { Button } from './ui/Button'
+import { Skeleton } from './ui/Skeleton'
 import type { ChatMessage } from '../types'
 
 const QUICK_PROMPTS = [
-  '解释这份笔记的核心概念',
-  '总结为5个要点',
-  '找出不清晰的章节',
-  '对结构提出改进建议',
-  '提取所有定义和公式',
+  'Explain the core concepts of this note',
+  'Summarize into 5 key points',
+  'Identify unclear sections',
+  'Suggest structural improvements',
+  'Extract all definitions and formulas',
 ]
 
 interface ChatHistory {
@@ -91,10 +96,7 @@ export function ChatPanel({ conversationId, contextNote }: Props) {
           return updated
         })
       })
-      setMessages(prev => {
-        scheduleSave(prev)
-        return prev
-      })
+      setMessages(prev => { scheduleSave(prev); return prev })
     } finally {
       setStreaming(false)
     }
@@ -121,30 +123,30 @@ export function ChatPanel({ conversationId, contextNote }: Props) {
   }
 
   return (
-    <div className="flex h-full border-l border-[var(--border)]">
+    <div className="flex h-full">
       {/* History sidebar */}
-      <div className={`${showHistory ? 'w-56' : 'w-0'} shrink-0 flex flex-col border-r border-[var(--border)] transition-all duration-200 overflow-hidden`}>
-        <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--border)] shrink-0">
-          <span className="font-mono text-xs text-[var(--muted)]">history</span>
-          <button
-            onClick={() => setShowHistory(false)}
-            className="font-mono text-xs text-[var(--muted)] hover:text-[var(--green)] transition-colors"
-          >
-            ✕
+      <div className={`${showHistory ? 'w-56' : 'w-0'} shrink-0 flex flex-col border-r border-border transition-all duration-200 overflow-hidden`}>
+        <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0">
+          <span className="font-mono text-xs text-muted">history</span>
+          <button onClick={() => setShowHistory(false)} className="p-1 rounded text-muted hover:text-brand transition-colors">
+            <X size={12} />
           </button>
         </div>
         <div className="px-3 py-2 shrink-0">
-          <input
-            type="text"
-            value={historyFilter}
-            onChange={e => setHistoryFilter(e.target.value)}
-            placeholder="filter…"
-            className="w-full bg-[var(--bg)] border border-[var(--border)] rounded px-2 py-1 font-mono text-xs text-[var(--ink)] placeholder:text-[var(--faint)] focus:outline-none focus:border-[var(--green)]/50"
-          />
+          <div className="relative">
+            <Search size={10} className="absolute left-2 top-1/2 -translate-y-1/2 text-faint" />
+            <input
+              type="text"
+              value={historyFilter}
+              onChange={e => setHistoryFilter(e.target.value)}
+              placeholder="filter..."
+              className="w-full bg-bg border border-border rounded px-2 pl-6 py-1 font-mono text-xs text-text placeholder:text-faint focus:outline-none focus:border-brand/50"
+            />
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {filteredHistories.length === 0 && (
-            <p className="px-3 py-4 font-mono text-xs text-[var(--muted)] text-center">no history</p>
+            <p className="px-3 py-4 font-mono text-xs text-muted text-center">no history</p>
           )}
           {filteredHistories.map(h => {
             const parts = h.conversation_id.split('_')
@@ -153,21 +155,15 @@ export function ChatPanel({ conversationId, contextNote }: Props) {
             return (
               <button
                 key={h.conversation_id}
-                className={`w-full text-left px-3 py-2.5 border-b border-[var(--border)]/50 transition-colors ${
-                  isActive
-                    ? 'bg-[var(--green-bg)] border-l-2 border-l-[var(--green)]'
-                    : 'hover:bg-[var(--surface2)]'
+                className={`w-full text-left px-3 py-2.5 border-b border-border/50 transition-colors ${
+                  isActive ? 'bg-brand-bg border-l-2 border-l-brand' : 'hover:bg-surface2'
                 }`}
               >
-                <p className={`font-mono text-xs truncate ${isActive ? 'text-[var(--green)]' : 'text-[var(--ink)]'}`}>
+                <p className={`font-mono text-xs truncate ${isActive ? 'text-brand' : 'text-text'}`}>
                   {label || h.conversation_id}
                 </p>
-                <p className="font-mono text-xs text-[var(--muted)] mt-0.5 truncate">
-                  {h.preview || '(empty)'}
-                </p>
-                <p className="font-mono text-xs text-[var(--faint)] mt-1">
-                  {h.msg_count}条 · {formatTime(h.updated_at)}
-                </p>
+                <p className="font-mono text-xs text-muted mt-0.5 truncate">{h.preview || '(empty)'}</p>
+                <p className="font-mono text-xs text-faint mt-1">{h.msg_count} messages · {formatTime(h.updated_at)}</p>
               </button>
             )
           })}
@@ -177,45 +173,40 @@ export function ChatPanel({ conversationId, contextNote }: Props) {
       {/* Main chat panel */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between shrink-0">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowHistory(v => !v)}
-              className="font-mono text-xs text-[var(--muted)] hover:text-[var(--green)] transition-colors mr-1"
+              className="p-1 rounded-lg text-muted hover:text-brand hover:bg-brand-bg transition-colors"
               title="Toggle history"
             >
-              ☰
+              <Menu size={14} />
             </button>
-            <span className="text-[var(--moss)] font-mono text-sm">◈</span>
-            <span className="font-mono text-xs text-[var(--muted)] tracking-wider">LLM ASSISTANT</span>
+            <Sparkles size={14} className="text-accent" />
+            <span className="font-mono text-xs text-muted tracking-wider hidden sm:inline">ASSISTANT</span>
           </div>
-          <button
-            onClick={clear}
-            className="font-mono text-xs text-[var(--muted)] hover:text-[var(--ink)] transition-colors"
-          >
-            clear
-          </button>
+          <Button variant="ghost" size="sm" onClick={clear}><Trash2 size={12} /> clear</Button>
         </div>
 
         {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
           {!loaded && (
             <div className="py-6 text-center">
-              <span className="font-mono text-xs text-[var(--muted)] animate-pulse">loading history<span className="cursor" /></span>
+              <Skeleton className="h-4 w-32 mx-auto" />
             </div>
           )}
 
           {loaded && messages.length === 0 && (
             <div className="py-6 text-center">
-              <p className="font-mono text-xs text-[var(--muted)] mb-4">ask about the current note</p>
+              <p className="font-mono text-xs text-muted mb-4">Ask about the current note</p>
               <div className="space-y-2">
                 {QUICK_PROMPTS.map(p => (
                   <button
                     key={p}
                     onClick={() => send(p)}
-                    className="block w-full text-left px-3 py-2 font-mono text-xs rounded-lg border border-[var(--border)] text-[var(--muted)] hover:border-[var(--green)]/40 hover:text-[var(--green)] transition-all"
+                    className="block w-full text-left px-3 py-2 font-mono text-xs rounded-lg border border-border text-muted hover:border-brand/40 hover:text-brand transition-all"
                   >
-                    <span className="text-[var(--moss)] mr-2">›</span>{p}
+                    <ChevronRight size={10} className="inline mr-2 text-accent" />{p}
                   </button>
                 ))}
               </div>
@@ -226,16 +217,16 @@ export function ChatPanel({ conversationId, contextNote }: Props) {
             <div
               key={i}
               className={`rounded-lg px-3 py-2.5 text-sm animate-fade-in ${
-                m.role === 'user' ? 'chat-user ml-4' : 'chat-assist mr-4'
+                m.role === 'user' ? 'chat-user ml-4 sm:ml-8' : 'chat-assist mr-4 sm:mr-8'
               }`}
             >
               <div className="flex items-center gap-1.5 mb-1.5">
-                <span className={`font-mono text-xs ${m.role === 'user' ? 'text-[var(--green)]' : 'text-[var(--moss)]'}`}>
-                  {m.role === 'user' ? '▸ you' : '◈ llm'}
+                <span className={`font-mono text-xs ${m.role === 'user' ? 'text-brand' : 'text-accent'}`}>
+                  {m.role === 'user' ? 'you' : 'llm'}
                 </span>
               </div>
               {m.role === 'user' ? (
-                <p className="font-mono text-xs leading-relaxed whitespace-pre-wrap text-[var(--ink)]">
+                <p className="font-mono text-xs leading-relaxed whitespace-pre-wrap text-text">
                   {m.content}
                 </p>
               ) : (
@@ -251,27 +242,28 @@ export function ChatPanel({ conversationId, contextNote }: Props) {
         </div>
 
         {/* Input */}
-        <div className="px-4 pb-4 pt-2 shrink-0 border-t border-[var(--border)]">
+        <div className="px-3 sm:px-4 pb-4 pt-2 shrink-0 border-t border-border">
           <div className="flex gap-2">
             <div className="relative flex-1">
-              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 font-mono text-xs text-[var(--moss)]">›</span>
+              <ChevronRight size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-accent" />
               <input
                 type="text"
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send(input)}
                 disabled={streaming}
-                placeholder="ask anything…"
-                className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-lg py-2 pl-7 pr-3 font-mono text-xs text-[var(--ink)] placeholder:text-[var(--faint)] focus:outline-none focus:border-[var(--green)]/50 disabled:opacity-50 transition-all"
+                placeholder="Ask anything..."
+                className="w-full bg-bg border border-border rounded-lg py-2 pl-7 pr-3 font-mono text-xs text-text placeholder:text-faint focus:outline-none focus:border-brand/50 disabled:opacity-50 transition-all"
               />
             </div>
-            <button
+            <Button
+              variant="primary"
+              size="sm"
               disabled={streaming || !input.trim()}
               onClick={() => send(input)}
-              className="px-3 py-2 font-mono text-xs rounded-lg border border-[var(--green)]/30 text-[var(--green)] hover:bg-[var(--green-bg)] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
             >
-              {streaming ? '⟳' : '⏎'}
-            </button>
+              {streaming ? <span className="animate-pulse">...</span> : <ChevronRight size={14} />}
+            </Button>
           </div>
         </div>
       </div>

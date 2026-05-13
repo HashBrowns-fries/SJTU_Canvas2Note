@@ -105,8 +105,10 @@ def _transcribe_translate(audio_or_video_path: str | os.PathLike) -> str:
     from canvas.translate_client import TranslateClient
     from dotenv import load_dotenv
     load_dotenv()
+    cfg = _cfg()
+    cookie = cfg.get("ja_session_cookie", "") or os.getenv("JA_SESSION_COOKIE", "")
     print(f"[translate.sjtu.edu.cn] 转录: {Path(audio_or_video_path).name}")
-    client = TranslateClient()
+    client = TranslateClient(cookie_str=cookie)
     text = client.upload_and_wait(audio_or_video_path).strip()
     print(f"[translate] 完成，字符数: {len(text)}")
     return text
@@ -199,6 +201,70 @@ def _transcribe_qwen3(audio_or_video_path: str | os.PathLike, chunk_minutes: int
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+# ── FunASR SenseVoice ────────────────────────────────────────────────────────────
+
+_funasr_model = None
+
+
+def _load_funasr():
+    global _funasr_model
+    if _funasr_model is not None:
+        return _funasr_model
+    device, idx = _gpu_info()
+    actual = device if idx >= 0 else "cpu"
+    print(f"[FunASR] 加载 iic/SenseVoiceSmall on {actual} ...")
+    from funasr import AutoModel
+    _funasr_model = AutoModel(
+        model="iic/SenseVoiceSmall",
+        device=actual,
+        disable_update=True,
+    )
+    print("[FunASR] 模型加载完成")
+    return _funasr_model
+
+
+def _transcribe_funasr(audio_or_video_path: str | os.PathLike, chunk_minutes: int = 10) -> str:
+    """FunASR SenseVoiceSmall 转录，仅输出纯文本（无时间戳）。"""
+    import re, time, numpy as np, wave
+    cfg = _cfg()
+    lang = cfg.get("asr_language", "auto")
+    path = Path(audio_or_video_path)
+    print(f"[FunASR] 转录: {path.name} (lang={lang})")
+
+    # 如果是视频，先提取音频
+    if path.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv"}:
+        audio_path = extract_audio(path, course_name="")
+    else:
+        audio_path = path
+
+    if not audio_path.exists():
+        raise FileNotFoundError(f"音频不存在: {audio_path}")
+
+    model = _load_funasr()
+    t0 = time.time()
+
+    with wave.open(str(audio_path)) as f:
+        audio_all = np.frombuffer(
+            f.readframes(f.getnframes()), dtype=np.int16
+        ).astype(np.float32) / 32768.0
+
+    chunk_samples = chunk_minutes * 60 * 16000
+    parts = []
+    for start in range(0, len(audio_all), chunk_samples):
+        chunk = audio_all[start: start + chunk_samples]
+        res = model.generate(input=chunk, language=lang, use_itn=True)
+        text = res[0]["text"].strip()
+        # 清理 FunASR 标签: <|zh|> 语言标签, <|NEUTRAL|> 情绪, <|nospeech|> 等
+        text = re.sub(r"<\|[^|]*\|>", "", text).strip()
+        if text:
+            parts.append(text)
+
+    elapsed = time.time() - t0
+    full_text = " ".join(parts)
+    print(f"[FunASR] 完成，{len(parts)} 段，耗时 {elapsed:.0f}s，字符数: {len(full_text)}")
+    return full_text
+
+
 def transcribe(audio_path: str | os.PathLike, course_name: str = "") -> str:
     cfg = _cfg()
     engine = cfg.get("asr_engine", "translate")
@@ -208,6 +274,8 @@ def transcribe(audio_path: str | os.PathLike, course_name: str = "") -> str:
         return _transcribe_whisper(audio_path)
     if engine == "qwen3":
         return _transcribe_qwen3(audio_path)
+    if engine == "funasr":
+        return _transcribe_funasr(audio_path)
     # 默认 / translate：直接对视频/音频文件调用 translate 站点
     return _transcribe_translate(audio_path)
 

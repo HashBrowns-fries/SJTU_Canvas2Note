@@ -385,7 +385,10 @@ def _do_batch_transcribe(tid: str, items: list[dict], delete_video: bool):
         from asr.transcriber import transcribe_video
         cfg = _cfg()
         vc = VideoClient(ja_auth_cookie=cfg.get("ja_auth_cookie", ""))
-        await vc.login()
+        if not vc.login():
+            tasks[tid]["status"] = "error"
+            tasks[tid]["error"] = "视频站登录失败，请检查 ja_auth_cookie 是否过期"
+            return
         updated_items = []
         for i, raw_item in enumerate(items):
             item = raw_item.model_dump() if hasattr(raw_item, 'model_dump') else raw_item
@@ -399,17 +402,22 @@ def _do_batch_transcribe(tid: str, items: list[dict], delete_video: bool):
                 # Download
                 out_dir = DOWNLOAD_DIR / course_name
                 out_dir.mkdir(parents=True, exist_ok=True)
-                video_path = await vc.download_video(item["course_id"], video_id, title, str(out_dir), play_index=play_index)
+                vc.bind_canvas_course(item["course_id"])
+                save_path = out_dir / f"{title}.mp4"
+                video_path = str(vc.download_video(video_id, save_path, title=title, play_index=play_index))
                 tasks[tid]["items"] = updated_items + [{"title": title, "status": "↓"}]
                 # Transcribe
                 text = transcribe_video(Path(video_path), course_name)
                 tasks[tid]["items"] = updated_items + [{"title": title, "status": "◎"}]
+                # Save transcript
+                stem = Path(video_path).stem
+                course_dir = AUDIO_DIR / course_name
+                course_dir.mkdir(parents=True, exist_ok=True)
+                (course_dir / (stem + ".txt")).write_text(text, encoding="utf-8")
                 # Delete video
                 if delete_video and video_path and Path(video_path).exists():
                     Path(video_path).unlink()
-                    tasks[tid]["items"] = updated_items + [{"title": title, "status": "✓"}]
-                else:
-                    tasks[tid]["items"] = updated_items + [{"title": title, "status": "✓"}]
+                tasks[tid]["items"] = updated_items + [{"title": title, "status": "✓"}]
                 updated_items = tasks[tid]["items"]
             except Exception as e:
                 tasks[tid]["items"] = updated_items + [{"title": title, "status": "✗", "error": str(e)}]
@@ -536,6 +544,8 @@ def list_slides(course_name: str = ""):
     else:
         dirs = [d for d in DOWNLOAD_DIR.iterdir() if d.is_dir()]
     for course_dir in sorted(dirs, key=lambda d: d.name):
+        if not course_dir.is_dir():
+            continue
         ppt_dirs = [d for d in course_dir.iterdir() if d.is_dir() and d.name.endswith("_ppt_imgs")]
         for ppt_dir in sorted(ppt_dirs, key=lambda d: d.name):
             imgs = sorted(ppt_dir.glob("*.jpg")) + sorted(ppt_dir.glob("*.png")) + sorted(ppt_dir.glob("*.webp"))

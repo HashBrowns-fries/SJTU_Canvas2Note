@@ -19,6 +19,9 @@ dependencies = [
     "transformers==4.57.6",
     "faster-whisper",
     "uvicorn>=0.44.0",
+    "pingouin>=0.6.1",
+    "seaborn>=0.13.2",
+    "playwright>=1.59.0",
 ]
 
 [project.scripts]

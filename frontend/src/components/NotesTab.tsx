@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { Sparkles, Plus, Pencil, Trash2, Check, Loader2, X } from 'lucide-react'
 import { api, streamSSE } from '../api'
 import { pushToast } from './Toast'
 import { ChatPanel } from './ChatPanel'
+import { Button } from './ui/Button'
+import { Badge } from './ui/Badge'
+import { Skeleton } from './ui/Skeleton'
+import { EmptyState } from './ui/EmptyState'
+import { Modal } from './ui/Modal'
 import type { Course, Note, Transcription } from '../types'
 import type { PptSlideSet } from '../api'
 
@@ -35,9 +41,6 @@ export function NotesTab({ course }: Props) {
   const [renamingNote, setRenamingNote] = useState<Note | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [renaming, setRenaming] = useState(false)
-
-  // Hover state for action buttons
-  const [hoveredNote, setHoveredNote] = useState<string | null>(null)
 
   useEffect(() => { loadNotes() }, [course.id])
 
@@ -71,18 +74,18 @@ export function NotesTab({ course }: Props) {
     setContent(editContent)
     setView('preview')
     setSaving(false)
-    pushToast({ type: 'success', message: '✓ Note saved' })
+    pushToast({ type: 'success', message: 'Note saved' })
   }
 
   async function deleteNote(n: Note) {
-    if (!confirm(`删除笔记「${n.stem}」？此操作不可恢复。`)) return
+    if (!confirm(`Delete note "${n.stem}"? This cannot be undone.`)) return
     try {
       await api.deleteNote(n.course, n.filename)
       if (selected?.path === n.path) setSelected(null)
       loadNotes()
-      pushToast({ type: 'success', message: '✓ 已删除' })
+      pushToast({ type: 'success', message: 'Deleted' })
     } catch {
-      pushToast({ type: 'error', message: '删除失败' })
+      pushToast({ type: 'error', message: 'Delete failed' })
     }
   }
 
@@ -94,10 +97,7 @@ export function NotesTab({ course }: Props) {
   async function confirmRename() {
     if (!renamingNote || !renameValue.trim()) return
     const newStem = renameValue.trim()
-    if (newStem === renamingNote.stem) {
-      setRenamingNote(null)
-      return
-    }
+    if (newStem === renamingNote.stem) { setRenamingNote(null); return }
     setRenaming(true)
     try {
       await api.renameNote(renamingNote.course, renamingNote.filename, newStem + '.md')
@@ -106,9 +106,9 @@ export function NotesTab({ course }: Props) {
       }
       loadNotes()
       setRenamingNote(null)
-      pushToast({ type: 'success', message: '✓ 已重命名' })
+      pushToast({ type: 'success', message: 'Renamed' })
     } catch {
-      pushToast({ type: 'error', message: '重命名失败，可能已存在同名文件' })
+      pushToast({ type: 'error', message: 'Rename failed, file may exist' })
     } finally {
       setRenaming(false)
     }
@@ -121,7 +121,7 @@ export function NotesTab({ course }: Props) {
       api.transcriptions().catch(() => []),
       api.pptSlidesList(course.name).catch(() => []),
     ])
-    setDownloads(dl.filter(d => d.course === course.name))
+    setDownloads(dl.filter((d: any) => d.course === course.name))
     setTranscriptions(tr.filter((t: any) => t.course === course.name))
     setGenSlides(slides)
   }
@@ -142,11 +142,11 @@ export function NotesTab({ course }: Props) {
         delta => setGenProgress(p => p + delta),
         status => setGenProgress(p => p + '\n' + status + '\n'),
       )
-      pushToast({ type: 'success', message: '✓ Note generated' })
+      pushToast({ type: 'success', message: 'Note generated' })
       loadNotes()
       setShowGen(false)
       setGenProgress('')
-    } catch (e) {
+    } catch {
       pushToast({ type: 'error', message: 'Generation failed' })
     } finally {
       setGenerating(false)
@@ -157,65 +157,44 @@ export function NotesTab({ course }: Props) {
 
   return (
     <div className="h-full flex">
-      {/* Left: note list + generator */}
-      <div className="w-56 shrink-0 border-r border-[var(--border)] flex flex-col">
-        <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
-          <p className="font-mono text-xs text-[var(--muted)]">{courseNotes.length} notes</p>
-          <button
-            onClick={openGenForm}
-            className="font-mono text-xs text-[var(--green)] hover:text-[var(--green-glow)] transition-colors"
-          >
-            + gen
-          </button>
+      {/* Left: note list */}
+      <div className="w-48 sm:w-56 shrink-0 border-r border-border flex flex-col">
+        <div className="px-3 sm:px-4 py-3 border-b border-border flex items-center justify-between">
+          <p className="font-mono text-xs text-muted truncate">{courseNotes.length} notes</p>
+          <Button variant="ghost" size="sm" onClick={openGenForm}><Plus size={12} /> gen</Button>
         </div>
 
         <div className="flex-1 overflow-y-auto">
           {courseNotes.length === 0 && (
-            <p className="px-4 py-6 font-mono text-xs text-[var(--muted)]">
-              no notes yet
-            </p>
+            <p className="px-4 py-6 font-mono text-xs text-muted">no notes yet</p>
           )}
           {courseNotes.map(n => (
-            <div
-              key={n.path}
-              onMouseEnter={() => setHoveredNote(n.path)}
-              onMouseLeave={() => setHoveredNote(null)}
-            >
+            <div key={n.path} className="group relative">
               <button
                 onClick={() => openNote(n)}
-                className={`w-full text-left px-4 py-3 border-b border-[var(--border)]/50 transition-colors ${
+                className={`w-full text-left px-3 sm:px-4 py-3 border-b border-border/50 transition-colors ${
                   selected?.path === n.path
-                    ? 'bg-[var(--green-bg)] border-l-[3px] border-l-[var(--green)] text-[var(--green)]'
-                    : 'hover:bg-[var(--surface2)] text-[var(--ink)]'
+                    ? 'bg-brand-bg border-l-[3px] border-l-brand text-brand'
+                    : 'hover:bg-surface2 text-text'
                 }`}
               >
-                <p className="font-mono text-xs truncate pr-16">{n.stem}</p>
-                <p className="font-mono text-xs text-[var(--muted)] mt-0.5">
-                  {(n.size / 1024).toFixed(1)} KB
-                </p>
+                <p className="font-mono text-xs truncate">{n.stem}</p>
+                <p className="font-mono text-xs text-muted mt-0.5">{(n.size / 1024).toFixed(1)} KB</p>
               </button>
 
-              {/* Hover action buttons */}
-              {hoveredNote === n.path && (
-                <div className="relative">
-                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 z-10">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); startRename(n) }}
-                      className="font-mono text-xs px-2 py-1 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--muted)] hover:text-[var(--green)] hover:border-[var(--green)]/40 transition-all"
-                      title="重命名"
-                    >
-                      ✎
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); deleteNote(n) }}
-                      className="font-mono text-xs px-2 py-1 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-[var(--muted)] hover:text-[var(--rust)] hover:border-[var(--rust)]/40 transition-all"
-                      title="删除"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* Hover actions */}
+              <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex gap-0.5 bg-surface rounded-lg border border-border p-0.5">
+                <button
+                  onClick={(e) => { e.stopPropagation(); startRename(n) }}
+                  className="p-1 rounded text-muted hover:text-brand hover:bg-brand-bg transition-colors"
+                  title="Rename"
+                ><Pencil size={12} /></button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); deleteNote(n) }}
+                  className="p-1 rounded text-muted hover:text-error hover:bg-error-bg transition-colors"
+                  title="Delete"
+                ><Trash2 size={12} /></button>
+              </div>
             </div>
           ))}
         </div>
@@ -238,19 +217,14 @@ export function NotesTab({ course }: Props) {
         )}
 
         {!showGen && !selected && (
-          <div className="flex-1 flex items-center justify-center text-[var(--muted)]">
-            <div className="text-center">
-              <span className="text-5xl block mb-3 opacity-20">◈</span>
-              <p className="font-mono text-sm">select a note or generate one</p>
-            </div>
-          </div>
+          <EmptyState icon={Sparkles} title="Select a note or generate one" />
         )}
 
         {!showGen && selected && (
           <>
             {/* Toolbar */}
-            <div className="px-5 py-2.5 border-b border-[var(--border)] flex items-center gap-3 shrink-0">
-              <span className="font-mono text-xs text-[var(--green)] truncate flex-1">{selected.stem}</span>
+            <div className="px-4 sm:px-5 py-2.5 border-b border-border flex items-center gap-3 shrink-0">
+              <span className="font-mono text-xs text-brand truncate flex-1">{selected.stem}</span>
               <div className="flex gap-1 shrink-0">
                 {(['preview', 'edit'] as View[]).map(v => (
                   <button
@@ -258,21 +232,17 @@ export function NotesTab({ course }: Props) {
                     onClick={() => setView(v)}
                     className={`font-mono text-xs px-3 py-1 rounded-lg transition-all ${
                       view === v
-                        ? 'bg-[var(--green-bg)] text-[var(--green)] border border-[var(--green)]/40'
-                        : 'text-[var(--muted)] hover:text-[var(--ink)]'
+                        ? 'bg-brand-bg text-brand border border-brand/40'
+                        : 'text-muted hover:text-text'
                     }`}
                   >
                     {v}
                   </button>
                 ))}
                 {view === 'edit' && (
-                  <button
-                    disabled={saving}
-                    onClick={saveEdit}
-                    className="font-mono text-xs px-3 py-1 rounded-lg border border-[var(--moss)]/40 text-[var(--moss)] hover:bg-[var(--moss-bg)] disabled:opacity-50 ml-1 transition-all"
-                  >
-                    {saving ? '…' : '✓ save'}
-                  </button>
+                  <Button variant="primary" size="sm" loading={saving} onClick={saveEdit}>
+                    <Check size={12} /> save
+                  </Button>
                 )}
               </div>
             </div>
@@ -280,9 +250,9 @@ export function NotesTab({ course }: Props) {
             {/* Content */}
             <div className="flex-1 overflow-hidden">
               {loading ? (
-                <div className="p-6 font-mono text-xs text-[var(--muted)] animate-pulse">loading<span className="cursor" /></div>
+                <div className="p-6 font-mono text-xs text-muted animate-pulse">loading<span className="cursor" /></div>
               ) : view === 'preview' ? (
-                <div className="h-full overflow-y-auto p-8 paper-bg">
+                <div className="h-full overflow-y-auto p-6 sm:p-8 paper-bg">
                   <div className="prose-notes max-w-2xl mx-auto">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
                   </div>
@@ -291,7 +261,7 @@ export function NotesTab({ course }: Props) {
                 <textarea
                   value={editContent}
                   onChange={e => setEditContent(e.target.value)}
-                  className="w-full h-full p-6 bg-[var(--bg)] font-mono text-xs text-[var(--ink)] leading-relaxed resize-none focus:outline-none"
+                  className="w-full h-full p-6 bg-bg font-mono text-xs text-text leading-relaxed resize-none focus:outline-none"
                   spellCheck={false}
                 />
               )}
@@ -300,45 +270,30 @@ export function NotesTab({ course }: Props) {
         )}
       </div>
 
-      {/* Right: chat */}
-      <div className="w-[38rem] shrink-0">
-        <ChatPanel
-          conversationId={selected ? `${selected.course}_${selected.stem}` : ''}
-          contextNote={content}
-        />
+      {/* Right: chat (hidden on smaller screens) */}
+      <div className="w-[34rem] shrink-0 hidden xl:block border-l border-border">
+        <ChatPanel conversationId={selected ? `${selected.course}_${selected.stem}` : ''} contextNote={content} />
       </div>
 
       {/* Rename modal */}
-      {renamingNote && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--ink)]/40 backdrop-blur-sm">
-          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 w-80 shadow-xl">
-            <h3 className="font-mono text-sm text-[var(--green)] mb-4">◈ 重命名笔记</h3>
-            <input
-              type="text"
-              value={renameValue}
-              onChange={e => setRenameValue(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && confirmRename()}
-              className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 font-mono text-xs text-[var(--ink)] mb-4 focus:outline-none focus:border-[var(--green)]/50 transition-all"
-              autoFocus
-            />
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setRenamingNote(null)}
-                className="font-mono text-xs px-4 py-2 rounded-lg border border-[var(--border)] text-[var(--muted)] hover:text-[var(--ink)] transition-colors"
-              >
-                取消
-              </button>
-              <button
-                disabled={renaming || !renameValue.trim()}
-                onClick={confirmRename}
-                className="font-mono text-xs px-4 py-2 rounded-lg border border-[var(--green)]/40 text-[var(--green)] hover:bg-[var(--green-bg)] disabled:opacity-50 transition-colors"
-              >
-                {renaming ? '…' : '✓ 确定'}
-              </button>
-            </div>
+      <Modal open={!!renamingNote} onClose={() => setRenamingNote(null)} title="Rename Note" size="sm">
+        <div className="space-y-4">
+          <input
+            type="text"
+            value={renameValue}
+            onChange={e => setRenameValue(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && confirmRename()}
+            className="field-input"
+            autoFocus
+          />
+          <div className="flex gap-2 justify-end">
+            <Button variant="secondary" onClick={() => setRenamingNote(null)}>Cancel</Button>
+            <Button variant="primary" disabled={renaming || !renameValue.trim()} onClick={confirmRename}>
+              {renaming ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Confirm
+            </Button>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   )
 }
@@ -369,33 +324,31 @@ function GenPanel({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex-1 overflow-y-auto p-4 sm:p-6">
       <div className="max-w-lg">
         <div className="flex items-center justify-between mb-5">
-          <h3 className="font-mono text-sm text-[var(--green)]">◈ generate note</h3>
-          <button onClick={onClose} className="font-mono text-xs text-[var(--muted)] hover:text-[var(--ink)]">✕</button>
+          <h3 className="font-mono text-sm text-brand flex items-center gap-2">
+            <Sparkles size={14} /> Generate Note
+          </h3>
+          <Button variant="ghost" size="sm" onClick={onClose}><X size={14} /></Button>
         </div>
 
         <div className="space-y-4">
           <div>
-            <label className="font-mono text-xs text-[var(--muted)] block mb-2">
+            <label className="font-mono text-xs text-muted block mb-2">
               documents ({docPaths.length} selected)
             </label>
-            <div className="space-y-1 max-h-48 overflow-y-auto border border-[var(--border)] rounded-lg p-2">
-              {downloads.length === 0 && (
-                <p className="font-mono text-xs text-[var(--muted)] px-1">no documents</p>
-              )}
+            <div className="space-y-1 max-h-48 overflow-y-auto border border-border rounded-lg p-2">
+              {downloads.length === 0 && <p className="font-mono text-xs text-muted px-1">no documents</p>}
               {downloads.map(d => (
                 <label
                   key={d.path}
                   className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer font-mono text-xs transition-colors ${
-                    docPaths.includes(d.path)
-                      ? 'bg-[var(--green-bg)] text-[var(--green)]'
-                      : 'text-[var(--muted)] hover:bg-[var(--surface2)]'
+                    docPaths.includes(d.path) ? 'bg-brand-bg text-brand' : 'text-muted hover:bg-surface2'
                   }`}
                 >
                   <input type="checkbox" checked={docPaths.includes(d.path)} onChange={() => toggleDoc(d.path)} className="sr-only" />
-                  <span className="shrink-0">{docPaths.includes(d.path) ? '◈' : '○'}</span>
+                  <span className="shrink-0">{docPaths.includes(d.path) ? <Sparkles size={10} /> : '○'}</span>
                   <span className="truncate">{d.name}</span>
                 </label>
               ))}
@@ -403,24 +356,20 @@ function GenPanel({
           </div>
 
           <div>
-            <label className="font-mono text-xs text-[var(--muted)] block mb-2">
+            <label className="font-mono text-xs text-muted block mb-2">
               transcriptions ({transcriptPaths.length} selected)
             </label>
-            <div className="space-y-1 max-h-48 overflow-y-auto border border-[var(--border)] rounded-lg p-2">
-              {transcriptions.length === 0 && (
-                <p className="font-mono text-xs text-[var(--muted)] px-1">no transcriptions</p>
-              )}
+            <div className="space-y-1 max-h-48 overflow-y-auto border border-border rounded-lg p-2">
+              {transcriptions.length === 0 && <p className="font-mono text-xs text-muted px-1">no transcriptions</p>}
               {transcriptions.map(t => (
                 <label
                   key={t.name}
                   className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer font-mono text-xs transition-colors ${
-                    transcriptPaths.includes(t.name)
-                      ? 'bg-[var(--green-bg)] text-[var(--green)]'
-                      : 'text-[var(--muted)] hover:bg-[var(--surface2)]'
+                    transcriptPaths.includes(t.name) ? 'bg-brand-bg text-brand' : 'text-muted hover:bg-surface2'
                   }`}
                 >
                   <input type="checkbox" checked={transcriptPaths.includes(t.name)} onChange={() => toggleTranscript(t.name)} className="sr-only" />
-                  <span className="shrink-0">{transcriptPaths.includes(t.name) ? '◈' : '○'}</span>
+                  <span className="shrink-0">{transcriptPaths.includes(t.name) ? <Sparkles size={10} /> : '○'}</span>
                   <span className="truncate">{t.name}</span>
                 </label>
               ))}
@@ -428,51 +377,45 @@ function GenPanel({
           </div>
 
           <div>
-            <label className="font-mono text-xs text-[var(--muted)] block mb-2">
+            <label className="font-mono text-xs text-muted block mb-2">
               PPT slides ({slidePaths.length} selected)
             </label>
-            <div className="space-y-1 max-h-48 overflow-y-auto border border-[var(--border)] rounded-lg p-2">
-              {slideSets.length === 0 && (
-                <p className="font-mono text-xs text-[var(--muted)] px-1">no slides — use Videos tab to download PPT</p>
-              )}
+            <div className="space-y-1 max-h-48 overflow-y-auto border border-border rounded-lg p-2">
+              {slideSets.length === 0 && <p className="font-mono text-xs text-muted px-1">no slides — use Videos tab to download PPT</p>}
               {slideSets.map(s => (
                 <label
                   key={s.dir}
                   className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer font-mono text-xs transition-colors ${
-                    slidePaths.includes(s.dir)
-                      ? 'bg-[var(--moss-bg)] text-[var(--moss)]'
-                      : 'text-[var(--muted)] hover:bg-[var(--surface2)]'
+                    slidePaths.includes(s.dir) ? 'bg-accent-bg text-accent' : 'text-muted hover:bg-surface2'
                   }`}
                 >
-                  <input
-                    type="checkbox"
-                    checked={slidePaths.includes(s.dir)}
-                    onChange={() => {
-                      if (slidePaths.includes(s.dir)) setSlidePaths(slidePaths.filter(p => p !== s.dir))
-                      else setSlidePaths([...slidePaths, s.dir])
-                    }}
-                    className="sr-only"
-                  />
-                  <span className="shrink-0">{slidePaths.includes(s.dir) ? '◈' : '○'}</span>
+                  <input type="checkbox" checked={slidePaths.includes(s.dir)} onChange={() => {
+                    if (slidePaths.includes(s.dir)) setSlidePaths(slidePaths.filter(p => p !== s.dir))
+                    else setSlidePaths([...slidePaths, s.dir])
+                  }} className="sr-only" />
+                  <span className="shrink-0">{slidePaths.includes(s.dir) ? <Sparkles size={10} /> : '○'}</span>
                   <span className="truncate">{s.title}</span>
-                  <span className="ml-auto text-[var(--faint)] shrink-0">{s.count}p</span>
+                  <span className="ml-auto text-faint shrink-0">{s.count}p</span>
                 </label>
               ))}
             </div>
           </div>
 
-          <button
+          <Button
+            variant="primary"
+            size="lg"
+            className="w-full justify-center"
             disabled={generating || (docPaths.length === 0 && transcriptPaths.length === 0 && slidePaths.length === 0)}
             onClick={onGenerate}
-            className="w-full font-mono text-xs py-2.5 rounded-lg border border-[var(--green)]/40 text-[var(--green)] hover:bg-[var(--green-bg)] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            loading={generating}
           >
-            {generating ? '⟳ generating…' : '◈ generate'}
-          </button>
+            <Sparkles size={14} /> Generate
+          </Button>
         </div>
 
         {progress && (
-          <div className="mt-5 p-4 bg-[var(--surface2)] rounded-lg border border-[var(--border)] max-h-64 overflow-y-auto">
-            <p className="font-mono text-xs text-[var(--moss)] leading-relaxed whitespace-pre-wrap">{progress}<span className="cursor" /></p>
+          <div className="mt-5 p-4 bg-surface2 rounded-lg border border-border max-h-64 overflow-y-auto">
+            <p className="font-mono text-xs text-accent leading-relaxed whitespace-pre-wrap">{progress}<span className="cursor" /></p>
           </div>
         )}
       </div>

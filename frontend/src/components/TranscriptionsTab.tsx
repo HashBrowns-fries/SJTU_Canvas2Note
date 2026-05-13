@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
+import { Mic } from 'lucide-react'
 import { api } from '../api'
+import { Badge } from './ui/Badge'
+import { Skeleton } from './ui/Skeleton'
+import { EmptyState } from './ui/EmptyState'
 import type { Course, Transcription } from '../types'
 
 function detectLang(text: string): string {
-  const cjk = (text.match(/[\u3040-\u30ff\u4e00-\u9fff]/g) ?? []).length
+  const cjk = (text.match(/[぀-ヿ一-鿿]/g) ?? []).length
   const latin = (text.match(/[a-zA-Z]/g) ?? []).length
   const de = /\b(und|der|die|das|ist|mit|von|für|nicht)\b/.test(text)
   if (cjk / (text.length + 1) > 0.15) return '中文/日本語'
@@ -11,7 +15,9 @@ function detectLang(text: string): string {
   return 'EN'
 }
 
-export function TranscriptionsTab({ course, refresh }: { course: Course; refresh: number }) {
+interface Props { course: Course; refresh: number }
+
+export function TranscriptionsTab({ course, refresh }: Props) {
   const [list, setList] = useState<Transcription[]>([])
   const [selected, setSelected] = useState<string | null>(null)
   const [text, setText] = useState('')
@@ -19,8 +25,6 @@ export function TranscriptionsTab({ course, refresh }: { course: Course; refresh
 
   useEffect(() => {
     api.transcriptions().then(all => {
-      // Filter by course field directly (backend already stores course dir name)
-      // Normalize: strip any bracketed suffix so '现代汉语（2）' matches dir '现代汉语(2)'
       const norm = (s: string) => s.replace(/[（()].*/, '').trim()
       setList(all.filter((t: Transcription) => norm(t.course) === norm(course.name)))
     }).catch(() => setList([]))
@@ -37,29 +41,27 @@ export function TranscriptionsTab({ course, refresh }: { course: Course; refresh
   return (
     <div className="h-full flex">
       {/* Left: list */}
-      <div className="w-64 shrink-0 border-r border-[var(--border)] overflow-y-auto">
-        <div className="px-4 py-3 border-b border-[var(--border)]">
-          <p className="font-mono text-xs text-[var(--text-muted)]">{list.length} transcriptions</p>
+      <div className="w-56 sm:w-64 shrink-0 border-r border-border overflow-y-auto">
+        <div className="px-4 py-3 border-b border-border">
+          <p className="font-mono text-xs text-muted">{list.length} transcriptions</p>
         </div>
         {list.length === 0 && (
-          <p className="px-4 py-6 font-mono text-xs text-[var(--text-muted)]">
-            no transcriptions yet — transcribe a video first
+          <p className="px-4 py-6 font-mono text-xs text-muted">
+            No transcriptions yet — transcribe a video first
           </p>
         )}
         {list.map(t => (
           <button
             key={t.name}
             onClick={() => load(t.name)}
-            className={`w-full text-left px-4 py-3 border-b border-[var(--border)]/50 transition-colors ${
+            className={`w-full text-left px-4 py-3 border-b border-border/50 transition-colors ${
               selected === t.name
-                ? 'bg-[var(--surface2)] border-l-2 border-l-[var(--moss)] text-[var(--moss)]'
-                : 'hover:bg-[var(--surface2)] text-[var(--text)]'
+                ? 'bg-surface2 border-l-2 border-l-accent text-accent'
+                : 'hover:bg-surface2 text-text'
             }`}
           >
-            <p className="font-mono text-xs truncate">{t.name}</p>
-            <p className="font-mono text-xs text-[var(--text-muted)] mt-0.5">
-              {(t.size / 1024).toFixed(1)} KB
-            </p>
+            <p className="font-mono text-xs truncate">{t.name.split('/').pop() || t.name}</p>
+            <p className="font-mono text-xs text-muted mt-0.5">{(t.size / 1024).toFixed(1)} KB</p>
           </button>
         ))}
       </div>
@@ -67,31 +69,20 @@ export function TranscriptionsTab({ course, refresh }: { course: Course; refresh
       {/* Right: content */}
       <div className="flex-1 flex flex-col min-w-0">
         {!selected && (
-          <div className="flex-1 flex items-center justify-center text-[var(--text-muted)]">
-            <div className="text-center">
-              <span className="text-5xl block mb-3 opacity-20">◎</span>
-              <p className="font-mono text-sm">select a transcription</p>
-            </div>
-          </div>
+          <EmptyState icon={Mic} title="Select a transcription" description="Choose from the list to view its content" />
         )}
         {selected && (
           <>
-            <div className="px-6 py-3 border-b border-[var(--border)] flex items-center gap-3">
-              <span className="font-mono text-sm text-[var(--moss)]">{selected}</span>
-              {text && (
-                <span className="font-mono text-xs px-2 py-0.5 bg-[var(--green-bg)] text-[var(--green)] rounded border border-[var(--green)]/20">
-                  {detectLang(text)}
-                </span>
-              )}
-              <span className="ml-auto font-mono text-xs text-[var(--text-muted)]">
-                {text.split(/\s+/).length} words
-              </span>
+            <div className="px-4 sm:px-6 py-3 border-b border-border flex items-center gap-3 shrink-0">
+              <span className="font-mono text-sm text-accent truncate">{selected}</span>
+              {text && <Badge>{detectLang(text)}</Badge>}
+              <span className="ml-auto font-mono text-xs text-muted">{text.split(/\s+/).length} words</span>
             </div>
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
               {loading ? (
-                <div className="font-mono text-xs text-[var(--text-muted)] animate-pulse">loading<span className="cursor" /></div>
+                <Skeleton lines={8} />
               ) : (
-                <p className="font-mono text-sm text-[var(--text)] leading-relaxed whitespace-pre-wrap">{text}</p>
+                <p className="font-mono text-sm text-text leading-relaxed whitespace-pre-wrap">{text}</p>
               )}
             </div>
           </>

@@ -7,3 +7,14 @@ __pycache__/
 node_modules/
 dist/
 .venv/
+
+# Tauri build artifacts
+frontend/src-tauri/target/
+frontend/src-tauri/gen/
+
+# Personal / scratch files
+SJTU-Canvas-Helper/
+VibeVoice/
+batch_german.py
+clash-for-linux-install/
+*.md.tmp

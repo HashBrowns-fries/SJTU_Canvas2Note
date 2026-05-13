@@ -626,6 +626,8 @@ class SJTUVideoClient:
         """
         self.canvas_token = canvas_token or self.canvas_token
         if not ja_auth_cookie:
+            ja_auth_cookie = self._ja_auth_cookie
+        if not ja_auth_cookie:
             print("[错误] ja_auth_cookie 为空")
             return False
 
@@ -658,8 +660,6 @@ class SJTUVideoClient:
 #   POST /lti/liveVideo/getLiveVideoInfos  → 流地址 + 教师/屏幕双轨
 # ─────────────────────────────────────────────────────────────────────────────
 
-import subprocess
-import cv2
 from dataclasses import dataclass
 
 
@@ -886,6 +886,7 @@ class SJTUOldVideoClient:
         用 OpenCV 检测并解码图片中的所有二维码。
         返回二维码内容列表，空列表表示未检测到。
         """
+        import cv2
         img = cv2.imread(img_path)
         if img is None:
             return []

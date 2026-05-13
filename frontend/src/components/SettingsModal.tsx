@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
+import {
+  X, Globe, Video, Brain, Mic, Settings, Check, Loader2, Eye, EyeOff, Server,
+} from 'lucide-react'
+import { Button } from './ui/Button'
+import { Badge } from './ui/Badge'
+import { api } from '../api'
 
 interface Settings {
   canvas_base_url:    string
   canvas_token:       string
   ja_auth_cookie:     string
-  ja_session_cookie:  string   // translate.sjtu.edu.cn Cookie
+  ja_session_cookie:  string
   llm_base_url:       string
   llm_api_key:        string
   llm_model:          string
@@ -16,39 +22,42 @@ interface Settings {
   asr_api_model:      string
 }
 
-interface Props { onClose: () => void }
+interface Props { open: boolean; onClose: () => void }
 
 const LLM_PRESETS = [
-  { label: 'Ollama (localhost)', base_url: 'http://localhost:11434/v1', api_key: 'ollama' },
-  { label: 'OpenAI',             base_url: 'https://api.openai.com/v1',  api_key: '' },
-  { label: 'DeepSeek',           base_url: 'https://api.deepseek.com/v1', api_key: '' },
-  { label: 'SiliconFlow',        base_url: 'https://api.siliconflow.cn/v1', api_key: '' },
-  { label: 'MiniMax (Anthropic)', base_url: 'https://api.minimaxi.com/anthropic', api_key: '' },
-  { label: 'Custom',             base_url: '', api_key: '' },
+  { label: 'Ollama', base_url: 'http://localhost:11434/v1', api_key: 'ollama' },
+  { label: 'OpenAI', base_url: 'https://api.openai.com/v1',  api_key: '' },
+  { label: 'DeepSeek', base_url: 'https://api.deepseek.com/v1', api_key: '' },
+  { label: 'SiliconFlow', base_url: 'https://api.siliconflow.cn/v1', api_key: '' },
+  { label: 'MiniMax', base_url: 'https://api.minimaxi.com/anthropic', api_key: '' },
 ]
 
-const ASR_ENGINE_PRESETS = [
-  { label: '🎓 交大转录站',     value: 'translate' },
-  { label: '⚡ faster-whisper',  value: 'faster-whisper' },
-  { label: '☁️  API',             value: 'api' },
+const ASR_ENGINES = [
+  { label: 'SJTU Transcriber', value: 'translate' },
+  { label: 'faster-whisper',   value: 'faster-whisper' },
+  { label: 'API',              value: 'api' },
 ]
 
-const ASR_WHISPER_PRESETS = [
-  { label: 'base    (74M)',    value: 'base' },
-  { label: 'small   (244M)',   value: 'small' },
-  { label: 'medium  (769M)',   value: 'medium' },
-  { label: 'large-v3 (1.5B)',  value: 'large-v3' },
+const ASR_MODELS = [
+  { label: 'base (74M)',    value: 'base' },
+  { label: 'small (244M)',  value: 'small' },
+  { label: 'medium (769M)', value: 'medium' },
+  { label: 'large-v3 (1.5B)', value: 'large-v3' },
 ]
 
-const ASR_API_PRESETS = [
-  { label: 'OpenAI Whisper',    value: 'whisper-1' },
-  { label: 'SiliconFlow',       value: 'paraformer-zh' },
-  { label: 'Custom',             value: '' },
+type SettingsTab = 'server' | 'canvas' | 'video' | 'llm' | 'asr'
+
+const TAB_ITEMS: { id: SettingsTab; label: string; icon: typeof Globe }[] = [
+  { id: 'server', label: 'Server', icon: Server },
+  { id: 'canvas', label: 'Canvas', icon: Globe },
+  { id: 'video',  label: 'Video',  icon: Video },
+  { id: 'llm',    label: 'LLM',    icon: Brain },
+  { id: 'asr',    label: 'ASR',    icon: Mic },
 ]
 
-type VideoLoginStatus = 'idle' | 'logging_in' | 'done' | 'error'
-
-export function SettingsModal({ onClose }: Props) {
+export function SettingsModal({ open, onClose }: Props) {
+  const [tab, setTab] = useState<SettingsTab>('server')
+  const [apiHost, setApiHost] = useState(() => { try { return localStorage.getItem('apiHost') || '' } catch { return '' } })
   const [settings, setSettings] = useState<Settings>({
     canvas_base_url: 'https://oc.sjtu.edu.cn',
     canvas_token:    '',
@@ -66,31 +75,65 @@ export function SettingsModal({ onClose }: Props) {
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [testMsg, setTestMsg] = useState('')
+  const [msg, setMsg] = useState('')
+
+  // Password visibility
   const [showToken, setShowToken] = useState(false)
   const [showKey, setShowKey] = useState(false)
-  const [showJaPwd, setShowJaPwd] = useState(false)
-  const [showJaSession, setShowJaSession] = useState(false)
-  const [videoLoginStatus, setVideoLoginStatus] = useState<VideoLoginStatus>('idle')
-  const [asrApiTestMsg, setAsrApiTestMsg] = useState('')
-  const [translateTestMsg, setTranslateTestMsg] = useState('')
+  const [showJa, setShowJa] = useState(false)
+  const [showJaSess, setShowJaSess] = useState(false)
+
+  // Test states
+  const [videoLoginStatus, setVideoLoginStatus] = useState<'idle' | 'logging_in' | 'done' | 'error'>('idle')
+  const [llmTestMsg, setLlmTestMsg] = useState('')
+  const [asrTestMsg, setAsrTestMsg] = useState('')
+
   const overlayRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (!open) return
     fetch('/api/settings')
       .then(r => r.json())
       .then((s: Settings) => setSettings(prev => ({ ...prev, ...s })))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [])
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    function handle(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handle)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', handle)
+      document.body.style.overflow = ''
+    }
+  }, [open, onClose])
 
   function set<K extends keyof Settings>(k: K, v: Settings[K]) {
     setSettings(prev => ({ ...prev, [k]: v }))
   }
 
-  function applyPreset(p: typeof LLM_PRESETS[number]) {
-    if (p.label === 'Custom') return
-    setSettings(prev => ({ ...prev, llm_base_url: p.base_url, llm_api_key: p.api_key }))
+  async function save() {
+    setSaving(true)
+    setMsg('')
+    try {
+      const r = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      })
+      if (r.ok) {
+        setMsg('Settings saved')
+        setTimeout(onClose, 800)
+      } else {
+        setMsg('Save failed')
+      }
+    } catch {
+      setMsg('Network error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function loginVideo() {
@@ -101,9 +144,9 @@ export function SettingsModal({ onClose }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
       })
-      await fetch('/api/video/login', { method: 'POST' })
+      const { task_id } = await fetch('/api/video/login', { method: 'POST' }).then(r => r.json())
       const poll = setInterval(async () => {
-        const t = await fetch('/api/tasks/video_login').then(r => r.json()).catch(() => null)
+        const t = await fetch(`/api/tasks/${task_id}`).then(r => r.json()).catch(() => null)
         if (!t) return
         if (t.status === 'done') { clearInterval(poll); setVideoLoginStatus('done') }
         if (t.status === 'error') { clearInterval(poll); setVideoLoginStatus('error') }
@@ -113,324 +156,222 @@ export function SettingsModal({ onClose }: Props) {
     }
   }
 
-  async function save() {
-    setSaving(true)
-    setTestMsg('')
-    try {
-      const r = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
-      })
-      if (r.ok) {
-        setTestMsg('✓ Settings saved successfully')
-        setTimeout(onClose, 800)
-      } else {
-        setTestMsg('✕ Save failed')
-      }
-    } catch {
-      setTestMsg('✕ Network error')
-    } finally {
-      setSaving(false)
-    }
-  }
+  const isApiMode = settings.asr_engine === 'api'
+  const isWhisper = settings.asr_engine === 'faster-whisper'
 
-  function overlayClick(e: React.MouseEvent) {
-    if (e.target === overlayRef.current) onClose()
-  }
-
-  const isApiMode    = settings.asr_engine === 'api'
-  const isWhisperMode = settings.asr_engine === 'faster-whisper'
+  if (!open) return null
 
   return (
     <div
       ref={overlayRef}
-      onClick={overlayClick}
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
+      onClick={e => { if (e.target === overlayRef.current) onClose() }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4"
     >
-      <div
-        className="relative w-full max-w-lg mx-4 rounded-xl border overflow-hidden"
-        style={{
-          background: 'var(--surface)',
-          borderColor: 'var(--border)',
-          boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
-          animation: 'slideUp 0.2s ease forwards',
-        }}
-      >
+      <div className="w-full h-full sm:h-auto sm:max-w-xl sm:max-h-[90vh] bg-surface sm:border border-border sm:rounded-xl shadow-modal flex flex-col overflow-hidden animate-slide-up">
         {/* Header */}
-        <div className="px-6 py-5 border-b border-[var(--border)] flex items-center justify-between">
+        <div className="shrink-0 px-5 py-4 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-[var(--green)] font-mono">◈</span>
-            <h2 className="font-mono text-sm font-bold text-[var(--green)] tracking-widest">SETTINGS</h2>
+            <Settings size={16} className="text-brand" />
+            <h2 className="font-mono text-sm font-semibold text-brand tracking-widest uppercase">SETTINGS</h2>
           </div>
-          <button
-            onClick={onClose}
-            className="font-mono text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors px-2 py-1 rounded hover:bg-[var(--surface2)]"
-          >
-            ✕
+          <button onClick={onClose} className="p-1.5 rounded-lg text-muted hover:text-text hover:bg-surface2 transition-colors">
+            <X size={16} />
           </button>
         </div>
 
-        {loading ? (
-          <div className="p-8 text-center font-mono text-xs text-[var(--text-muted)] animate-pulse">
-            loading<span className="cursor" />
-          </div>
-        ) : (
-          <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+        {/* Tab bar */}
+        <div className="shrink-0 border-b border-border flex overflow-x-auto">
+          {TAB_ITEMS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 font-mono text-xs transition-all border-b-2 whitespace-nowrap ${
+                tab === t.id
+                  ? 'border-brand text-brand bg-brand-bg'
+                  : 'border-transparent text-muted hover:text-text hover:border-border2'
+              }`}
+            >
+              <t.icon size={12} />
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-            {/* ── Canvas ── */}
-            <section>
-              <h3 className="font-mono text-xs text-[var(--green)]/80 tracking-wider mb-3 uppercase">
-                Canvas API
-              </h3>
-              <div className="space-y-3">
-                <Field label="Base URL">
-                  <input
-                    value={settings.canvas_base_url}
-                    onChange={e => set('canvas_base_url', e.target.value)}
-                    className="field-input"
-                    placeholder="https://oc.sjtu.edu.cn"
-                  />
-                </Field>
-                <Field label="Access Token">
-                  <div className="relative">
-                    <input
-                      type={showToken ? 'text' : 'password'}
-                      value={settings.canvas_token}
-                      onChange={e => set('canvas_token', e.target.value)}
-                      className="field-input pr-10"
-                      placeholder="tok_xxxxxxxxxxxxxxxx"
-                    />
-                    <button
-                      onClick={() => setShowToken(v => !v)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 font-mono text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
-                    >
-                      {showToken ? 'hide' : 'show'}
-                    </button>
-                  </div>
-                  <p className="field-hint">
-                    Get from Canvas → Account → Settings → New Access Token
-                  </p>
-                </Field>
-              </div>
-            </section>
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5">
+          {loading && (
+            <div className="text-center py-8 font-mono text-xs text-muted animate-pulse">loading<span className="cursor" /></div>
+          )}
 
-            <div className="border-t border-[var(--border)]" />
+          {!loading && tab === 'server' && (
+            <>
+              <Field label="Backend API Server URL">
+                <input
+                  value={apiHost}
+                  onChange={e => { setApiHost(e.target.value); localStorage.setItem('apiHost', e.target.value); window.location.reload() }}
+                  className="field-input"
+                  placeholder="http://localhost:8000"
+                />
+                <p className="field-hint">
+                  Where the Python backend runs. Leave empty if frontend and backend share the same origin.
+                  In Tauri app, set to <code>http://localhost:8000</code> or your server address.
+                  Changes reload the page immediately.
+                </p>
+              </Field>
+            </>
+          )}
 
-            {/* ── jAccount 录屏登录 ── */}
-            <section>
-              <h3 className="font-mono text-xs text-[var(--green)]/80 tracking-wider mb-3 uppercase">
-                课堂录屏（jAccount Cookie）
-              </h3>
-              <Field label="JAAuthCookie（从已登录浏览器复制）">
+          {!loading && tab === 'canvas' && (
+            <>
+              <Field label="Base URL">
+                <input value={settings.canvas_base_url} onChange={e => set('canvas_base_url', e.target.value)} className="field-input" placeholder="https://oc.sjtu.edu.cn" />
+              </Field>
+              <Field label="Access Token">
                 <div className="relative">
                   <input
-                    type={showJaPwd ? 'text' : 'password'}
+                    type={showToken ? 'text' : 'password'}
+                    value={settings.canvas_token}
+                    onChange={e => set('canvas_token', e.target.value)}
+                    className="field-input pr-10"
+                    placeholder="tok_..."
+                  />
+                  <button onClick={() => setShowToken(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-text">
+                    {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+                <p className="field-hint">Canvas → Account → Settings → New Access Token</p>
+              </Field>
+            </>
+          )}
+
+          {!loading && tab === 'video' && (
+            <>
+              <Field label="JAAuthCookie (from logged-in browser)">
+                <div className="relative">
+                  <input
+                    type={showJa ? 'text' : 'password'}
                     value={settings.ja_auth_cookie}
                     onChange={e => set('ja_auth_cookie', e.target.value)}
-                    className="field-input"
-                    placeholder="粘贴 JAAuthCookie 的值"
+                    className="field-input pr-10"
+                    placeholder="Paste JAAuthCookie value"
                   />
-                  <button
-                    onClick={() => setShowJaPwd(v => !v)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 font-mono text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
-                  >
-                    {showJaPwd ? 'hide' : 'show'}
+                  <button onClick={() => setShowJa(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-text">
+                    {showJa ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
                 <p className="field-hint">
-                  获取方式：浏览器登录 <strong>my.sjtu.edu.cn</strong> →
-                  F12 开发者工具 → Application → Cookies →
-                  找 <code>JAAuthCookie</code>，复制其 Value 值粘贴至此
+                  Login to <strong>my.sjtu.edu.cn</strong> → F12 DevTools → Application → Cookies → <code>JAAuthCookie</code>
                 </p>
               </Field>
-              <div>
-                <button
-                  onClick={loginVideo}
-                  disabled={videoLoginStatus === 'logging_in' || !settings.ja_auth_cookie}
-                  className="font-mono text-xs px-4 py-2 rounded border transition-all"
-                  style={{
-                    background: videoLoginStatus === 'done' ? 'rgba(58,122,80,0.12)' : 'transparent',
-                    borderColor: videoLoginStatus === 'done' ? 'rgba(58,122,80,0.5)' :
-                                 videoLoginStatus === 'error' ? 'rgba(176,64,48,0.5)' : 'var(--border)',
-                    color: videoLoginStatus === 'done' ? 'var(--moss)' :
-                           videoLoginStatus === 'error' ? 'var(--rust)' : 'var(--text-muted)',
-                  }}
-                >
-                  {videoLoginStatus === 'idle' && '◎ 登录视频平台'}
-                  {videoLoginStatus === 'logging_in' && '⟳ 登录中…'}
-                  {videoLoginStatus === 'done' && '✓ 已登录'}
-                  {videoLoginStatus === 'error' && '✕ 登录失败'}
-                </button>
-              </div>
-            </section>
+              <Button
+                variant="secondary"
+                onClick={loginVideo}
+                disabled={videoLoginStatus === 'logging_in' || !settings.ja_auth_cookie}
+              >
+                {videoLoginStatus === 'idle' && <><Video size={12} /> Login video platform</>}
+                {videoLoginStatus === 'logging_in' && <><Loader2 size={12} className="animate-spin" /> Logging in...</>}
+                {videoLoginStatus === 'done' && <><Check size={12} /> Logged in</>}
+                {videoLoginStatus === 'error' && <><X size={12} /> Login failed</>}
+              </Button>
 
-            <div className="border-t border-[var(--border)]" />
-
-            {/* ── LLM ── */}
-            <section>
-              <h3 className="font-mono text-xs text-[var(--green)]/80 tracking-wider mb-3 uppercase">
-                LLM
-              </h3>
-
-              <div className="flex flex-wrap gap-1.5 mb-4">
-                {LLM_PRESETS.map(p => (
-                  <button
-                    key={p.label}
-                    onClick={() => applyPreset(p)}
-                    className="font-mono text-xs px-3 py-1.5 rounded border transition-all"
-                    style={{
-                      background: settings.llm_base_url === p.base_url ? 'rgba(212,168,71,0.12)' : 'transparent',
-                      borderColor: settings.llm_base_url === p.base_url ? 'rgba(212,168,71,0.5)' : 'var(--border)',
-                      color: settings.llm_base_url === p.base_url ? 'var(--moss)' : 'var(--text-muted)',
-                    }}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="space-y-3">
-                <Field label="API Base URL">
-                  <input
-                    value={settings.llm_base_url}
-                    onChange={e => set('llm_base_url', e.target.value)}
-                    className="field-input"
-                    placeholder="http://localhost:11434/v1"
-                  />
-                </Field>
-                <Field label="API Key">
+              <div className="border-t border-border pt-4">
+                <Field label="JA_SESSION_COOKIE (translate.sjtu.edu.cn)">
                   <div className="relative">
                     <input
-                      type={showKey ? 'text' : 'password'}
-                      value={settings.llm_api_key}
-                      onChange={e => set('llm_api_key', e.target.value)}
+                      type={showJaSess ? 'text' : 'password'}
+                      value={settings.ja_session_cookie}
+                      onChange={e => set('ja_session_cookie', e.target.value)}
                       className="field-input pr-10"
-                      placeholder="ollama / sk-..."
+                      placeholder="Paste Cookie (JSESSIONID, keepalive, etc.)"
                     />
-                    <button
-                      onClick={() => setShowKey(v => !v)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 font-mono text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
-                    >
-                      {showKey ? 'hide' : 'show'}
+                    <button onClick={() => setShowJaSess(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-text">
+                      {showJaSess ? <EyeOff size={14} /> : <Eye size={14} />}
                     </button>
                   </div>
-                </Field>
-                <Field label="Model">
-                  <input
-                    value={settings.llm_model}
-                    onChange={e => set('llm_model', e.target.value)}
-                    className="field-input"
-                    placeholder="qwen3:8b"
-                  />
                   <p className="field-hint">
-                    Ollama: <code className="text-[var(--moss)]/60">ollama pull qwen3:14b</code>
-                    &nbsp;·&nbsp; MiniMax: <code className="text-[var(--moss)]/60">MiniMax-M2.7</code>（推理）或 <code className="text-[var(--moss)]/60">MiniMax-Text-01</code>（对话）
+                    Login to <strong>translate.sjtu.edu.cn</strong> → F12 → Cookies → <code>JSESSIONID</code>
                   </p>
                 </Field>
-                <button
-                  onClick={async () => {
-                    setTestMsg('')
-                    try {
-                      const r = await fetch('/api/settings/test_llm', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          base_url: settings.llm_base_url,
-                          api_key: settings.llm_api_key,
-                          model: settings.llm_model,
-                        }),
-                      })
-                      const data = await r.json()
-                      setTestMsg(r.ok ? `✓ 连接成功：${data.reply ?? 'ok'}` : `✕ ${data.error ?? 'failed'}`)
-                    } catch (e: unknown) {
-                      setTestMsg(`✕ ${e instanceof Error ? e.message : String(e)}`)
-                    }
-                  }}
-                  className="font-mono text-xs px-3 py-1.5 rounded border border-[var(--moss)]/30 text-[var(--moss)] hover:bg-[var(--moss)]/10 transition-all"
-                >
-                  ◎ 测试连接
-                </button>
               </div>
-            </section>
+            </>
+          )}
 
-            <div className="border-t border-[var(--border)]" />
+          {!loading && tab === 'llm' && (
+            <>
+              <div className="flex flex-wrap gap-1.5">
+                {LLM_PRESETS.map(p => {
+                  const active = settings.llm_base_url === p.base_url
+                  return (
+                    <button
+                      key={p.label}
+                      onClick={() => { set('llm_base_url', p.base_url); set('llm_api_key', p.api_key) }}
+                      className={`font-mono text-xs px-3 py-1.5 rounded-lg border transition-all ${
+                        active ? 'border-accent/50 bg-accent-bg text-accent' : 'border-border text-muted hover:border-border2'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  )
+                })}
+              </div>
 
-            {/* ── Translate Cookie ── */}
-            <section>
-              <h3 className="font-mono text-xs text-[var(--green)]/80 tracking-wider mb-3 uppercase">
-                AI 转录站（translate.sjtu.edu.cn）
-              </h3>
-              <Field label="JA_SESSION_COOKIE">
+              <Field label="API Base URL">
+                <input value={settings.llm_base_url} onChange={e => set('llm_base_url', e.target.value)} className="field-input" />
+              </Field>
+
+              <Field label="API Key">
                 <div className="relative">
                   <input
-                    type={showJaSession ? 'text' : 'password'}
-                    value={settings.ja_session_cookie}
-                    onChange={e => set('ja_session_cookie', e.target.value)}
-                    className="field-input"
-                    placeholder="粘贴 Cookie（包含 JSESSIONID、keepalive 等）"
+                    type={showKey ? 'text' : 'password'}
+                    value={settings.llm_api_key}
+                    onChange={e => set('llm_api_key', e.target.value)}
+                    className="field-input pr-10"
                   />
-                  <button
-                    onClick={() => setShowJaSession(v => !v)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 font-mono text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
-                  >
-                    {showJaSession ? 'hide' : 'show'}
+                  <button onClick={() => setShowKey(v => !v)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-text">
+                    {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
+              </Field>
+
+              <Field label="Model">
+                <input value={settings.llm_model} onChange={e => set('llm_model', e.target.value)} className="field-input" placeholder="qwen3:8b" />
                 <p className="field-hint">
-                  获取方式：浏览器登录 <strong>translate.sjtu.edu.cn</strong> 后
-                  F12 → Application → Cookies → 找 <code>JSESSIONID</code> 和 <code>keepalive</code>，复制完整 Cookie 值粘贴至此
+                  Ollama: <code>ollama pull qwen3:14b</code> · MiniMax: <code>MiniMax-M2.7</code>
                 </p>
               </Field>
-              <button
-                onClick={async () => {
-                  setTranslateTestMsg('')
-                  try {
-                    const r = await fetch('/api/settings/test_translate', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ cookie: settings.ja_session_cookie }),
-                    })
-                    const data = await r.json()
-                    setTranslateTestMsg(r.ok ? '✓ Cookie 有效' : `✕ ${data.error ?? '无效'}`)
-                  } catch (e: unknown) {
-                    setTranslateTestMsg(`✕ ${e instanceof Error ? e.message : String(e)}`)
-                  }
-                }}
-                className="font-mono text-xs px-3 py-1.5 rounded border border-[var(--moss)]/30 text-[var(--moss)] hover:bg-[var(--moss)]/10 transition-all"
-                disabled={!settings.ja_session_cookie}
-              >
-                ◎ 测试
-              </button>
-              {translateTestMsg && (
-                <p className={`font-mono text-xs ${translateTestMsg.startsWith('✓') ? 'text-[var(--moss)]' : 'text-[var(--rust)]'}`}>
-                  {translateTestMsg}
-                </p>
+
+              <Button variant="secondary" onClick={async () => {
+                setLlmTestMsg('')
+                try {
+                  const r = await fetch('/api/settings/test_llm', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base_url: settings.llm_base_url, api_key: settings.llm_api_key, model: settings.llm_model }),
+                  })
+                  const d = await r.json()
+                  setLlmTestMsg(r.ok ? `Connected: ${d.reply ?? 'ok'}` : `${d.error ?? 'failed'}`)
+                } catch (e: unknown) {
+                  setLlmTestMsg(`${e instanceof Error ? e.message : String(e)}`)
+                }
+              }}>
+                <Mic size={12} /> Test connection
+              </Button>
+              {llmTestMsg && (
+                <p className={`font-mono text-xs ${llmTestMsg.startsWith('Connected') ? 'text-success' : 'text-error'}`}>{llmTestMsg}</p>
               )}
-            </section>
+            </>
+          )}
 
-            <div className="border-t border-[var(--border)]" />
-
-            {/* ── ASR ── */}
-            <section>
-              <h3 className="font-mono text-xs text-[var(--green)]/80 tracking-wider mb-3 uppercase">
-                ASR
-              </h3>
-
-              {/* 引擎切换 */}
-              <Field label="引擎">
-                <div className="flex gap-2 mb-3">
-                  {ASR_ENGINE_PRESETS.map(m => (
+          {!loading && tab === 'asr' && (
+            <>
+              <Field label="Engine">
+                <div className="flex gap-2 flex-wrap">
+                  {ASR_ENGINES.map(m => (
                     <button
                       key={m.value}
                       onClick={() => set('asr_engine', m.value)}
-                      className="font-mono text-xs px-4 py-2 rounded border transition-all flex-1"
-                      style={{
-                        background:  settings.asr_engine === m.value ? 'rgba(122,171,138,0.15)' : 'transparent',
-                        borderColor: settings.asr_engine === m.value ? 'rgba(122,171,138,0.5)' : 'var(--border)',
-                        color:        settings.asr_engine === m.value ? 'var(--moss)' : 'var(--text-muted)',
-                      }}
+                      className={`font-mono text-xs px-4 py-2 rounded-lg border transition-all ${
+                        settings.asr_engine === m.value ? 'border-accent/50 bg-accent-bg text-accent' : 'border-border text-muted hover:border-border2'
+                      }`}
                     >
                       {m.label}
                     </button>
@@ -439,166 +380,88 @@ export function SettingsModal({ onClose }: Props) {
               </Field>
 
               {isApiMode ? (
-                /* ── API 模式配置 ── */
-                <div className="space-y-3">
+                <>
                   <Field label="API Base URL">
-                    <input
-                      value={settings.asr_api_base}
-                      onChange={e => set('asr_api_base', e.target.value)}
-                      className="field-input"
-                      placeholder="https://api.openai.com/v1"
-                    />
-                    <p className="field-hint">
-                      支持 OpenAI 兼容的 Whisper API（如 OpenAI、SiliconFlow、火山引擎等）
-                    </p>
+                    <input value={settings.asr_api_base} onChange={e => set('asr_api_base', e.target.value)} className="field-input" placeholder="https://api.openai.com/v1" />
                   </Field>
                   <Field label="API Key">
-                    <div className="relative">
-                      <input
-                        type={showKey ? 'text' : 'password'}
-                        value={settings.asr_api_key}
-                        onChange={e => set('asr_api_key', e.target.value)}
-                        className="field-input pr-10"
-                        placeholder="sk-..."
-                      />
-                      <button
-                        onClick={() => setShowKey(v => !v)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 font-mono text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
-                      >
-                        {showKey ? 'hide' : 'show'}
-                      </button>
-                    </div>
+                    <input type="password" value={settings.asr_api_key} onChange={e => set('asr_api_key', e.target.value)} className="field-input" placeholder="sk-..." />
                   </Field>
                   <Field label="Model">
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {ASR_API_PRESETS.map(p => (
-                        <button
-                          key={p.label}
-                          onClick={() => p.value && set('asr_api_model', p.value)}
-                          className="font-mono text-xs px-3 py-1.5 rounded border transition-all"
-                          style={{
-                            background:  settings.asr_api_model === p.value ? 'rgba(122,171,138,0.15)' : 'transparent',
-                            borderColor: settings.asr_api_model === p.value ? 'rgba(122,171,138,0.5)' : 'var(--border)',
-                            color:        settings.asr_api_model === p.value ? 'var(--moss)' : 'var(--text-muted)',
-                            cursor: p.value === '' ? 'not-allowed' : 'pointer',
-                          }}
-                        >
-                          {p.label}
-                        </button>
-                      ))}
-                    </div>
-                    <input
-                      value={settings.asr_api_model}
-                      onChange={e => set('asr_api_model', e.target.value)}
-                      className="field-input"
-                      placeholder="whisper-1"
-                    />
+                    <input value={settings.asr_api_model} onChange={e => set('asr_api_model', e.target.value)} className="field-input" placeholder="whisper-1" />
                   </Field>
-                  <button
-                    onClick={async () => {
-                      setAsrApiTestMsg('')
-                      try {
-                        const r = await fetch('/api/settings/test_asr', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            base_url: settings.asr_api_base,
-                            api_key: settings.asr_api_key,
-                            model: settings.asr_api_model,
-                          }),
-                        })
-                        const data = await r.json()
-                        setAsrApiTestMsg(r.ok ? '✓ 连接成功' : `✕ ${data.detail ?? 'failed'}`)
-                      } catch (e: unknown) {
-                        setAsrApiTestMsg(`✕ ${e instanceof Error ? e.message : String(e)}`)
-                      }
-                    }}
-                    className="font-mono text-xs px-3 py-1.5 rounded border border-[var(--moss)]/30 text-[var(--moss)] hover:bg-[var(--moss)]/10 transition-all"
-                    disabled={!settings.asr_api_base || !settings.asr_api_key}
-                  >
-                    ◎ 测试连接
-                  </button>
-                  {asrApiTestMsg && (
-                    <p className={`font-mono text-xs ${asrApiTestMsg.startsWith('✓') ? 'text-[var(--moss)]' : 'text-[var(--rust)]'}`}>
-                      {asrApiTestMsg}
-                    </p>
+                  <Button variant="secondary" onClick={async () => {
+                    setAsrTestMsg('')
+                    try {
+                      const r = await fetch('/api/settings/test_asr', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ base_url: settings.asr_api_base, api_key: settings.asr_api_key, model: settings.asr_api_model }),
+                      })
+                      const d = await r.json()
+                      setAsrTestMsg(r.ok ? 'Connected' : `${d.detail ?? 'failed'}`)
+                    } catch (e: unknown) {
+                      setAsrTestMsg(`${e instanceof Error ? e.message : String(e)}`)
+                    }
+                  }}>
+                    <Mic size={12} /> Test connection
+                  </Button>
+                  {asrTestMsg && (
+                    <p className={`font-mono text-xs ${asrTestMsg.startsWith('Connected') ? 'text-success' : 'text-error'}`}>{asrTestMsg}</p>
                   )}
-                </div>
+                </>
               ) : (
-                /* ── 本地模式配置 ── */
-                <div className="space-y-3">
-                  <Field label="模型">
+                <>
+                  <Field label="Model">
                     <div className="flex flex-wrap gap-1.5 mb-2">
-                      {ASR_WHISPER_PRESETS.map(p => (
+                      {ASR_MODELS.map(p => (
                         <button
                           key={p.value}
                           onClick={() => set('asr_model', p.value)}
-                          className="font-mono text-xs px-3 py-1.5 rounded border transition-all"
-                          style={{
-                            background:  settings.asr_model === p.value ? 'rgba(122,171,138,0.15)' : 'transparent',
-                            borderColor: settings.asr_model === p.value ? 'rgba(122,171,138,0.5)' : 'var(--border)',
-                            color:        settings.asr_model === p.value ? 'var(--moss)' : 'var(--text-muted)',
-                          }}
+                          className={`font-mono text-xs px-3 py-1.5 rounded-lg border transition-all ${
+                            settings.asr_model === p.value ? 'border-accent/50 bg-accent-bg text-accent' : 'border-border text-muted'
+                          }`}
                         >
                           {p.label}
                         </button>
                       ))}
                     </div>
                     <p className="field-hint">
-                      {isWhisperMode
-                        ? <>Whisper 模型精度：base → small → medium → large-v3<br/>显存需求：base≈1.5GB · small≈2.5GB · medium≈3.5GB · large-v3≈5.5GB</>
-                        : <>{settings.asr_engine === 'translate' ? '直接上传视频/音频文件，由交大转录站完成转写，无需本地模型' : '使用 OpenAI 兼容 API 进行转写'}</>}
+                      {isWhisper ? 'VRAM: base≈1.5GB · small≈2.5GB · medium≈3.5GB · large-v3≈5.5GB' : 'Upload audio/video files directly to SJTU transcription service'}
                     </p>
                   </Field>
-                  <Field label="硬件">
+                  <Field label="Device">
                     <div className="flex gap-2">
                       {['cuda', 'cpu'].map(d => (
                         <button
                           key={d}
                           onClick={() => set('asr_device', d)}
-                          className="font-mono text-xs px-4 py-2 rounded border transition-all"
-                          style={{
-                            background:  settings.asr_device === d ? 'rgba(122,171,138,0.15)' : 'transparent',
-                            borderColor: settings.asr_device === d ? 'rgba(122,171,138,0.5)' : 'var(--border)',
-                            color:        settings.asr_device === d ? 'var(--moss)' : 'var(--text-muted)',
-                          }}
+                          className={`font-mono text-xs px-4 py-2 rounded-lg border transition-all ${
+                            settings.asr_device === d ? 'border-accent/50 bg-accent-bg text-accent' : 'border-border text-muted'
+                          }`}
                         >
-                          {d === 'cuda' ? '⚡ GPU ★' : '💻 CPU'}
+                          {d === 'cuda' ? 'GPU' : 'CPU'}
                         </button>
                       ))}
                     </div>
-                    {settings.asr_device === 'cpu' && (
-                      <p className="field-hint text-[var(--rust)]/80">⚠ CPU 模式速度较慢，建议使用 GPU</p>
-                    )}
                   </Field>
-                </div>
+                </>
               )}
-            </section>
-
-          </div>
-        )}
+            </>
+          )}
+        </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-[var(--border)] flex items-center justify-between gap-4">
-          {testMsg && (
-            <span className={`font-mono text-xs ${testMsg.startsWith('✓') ? 'text-[var(--moss)]' : 'text-[var(--rust)]'}`}>
-              {testMsg}
-            </span>
-          )}
+        <div className="shrink-0 px-5 py-4 border-t border-border flex items-center justify-between gap-4">
+          <div>
+            {msg && (
+              <span className={`font-mono text-xs ${msg.startsWith('Settings') ? 'text-success' : 'text-error'}`}>
+                {msg}
+              </span>
+            )}
+          </div>
           <div className="flex gap-3 ml-auto">
-            <button
-              onClick={onClose}
-              className="font-mono text-xs px-4 py-2 rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] transition-all"
-            >
-              cancel
-            </button>
-            <button
-              disabled={saving}
-              onClick={save}
-              className="font-mono text-xs px-5 py-2 rounded border border-[var(--green)]/40 text-[var(--green)] hover:bg-[var(--green)]/10 disabled:opacity-40 transition-all"
-            >
-              {saving ? 'saving…' : '✓ save'}
-            </button>
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" onClick={save} loading={saving}><Check size={14} /> Save</Button>
           </div>
         </div>
       </div>
@@ -606,14 +469,11 @@ export function SettingsModal({ onClose }: Props) {
   )
 }
 
-function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block font-mono text-xs text-[var(--text-muted)] mb-1.5 tracking-wide">
-        {label}
-      </label>
+      <label className="block font-mono text-xs text-muted mb-1.5 tracking-wide">{label}</label>
       {children}
-      {hint && <p className="field-hint">{hint}</p>}
     </div>
   )
 }

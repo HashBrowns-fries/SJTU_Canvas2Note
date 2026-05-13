@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import type { Task } from '../types'
 
+export { useTheme } from './useTheme'
+export { useKeyboard } from './useKeyboard'
+
 export function useTaskPoller(
   taskIds: string[],
   onDone: (task: Task) => void,

@@ -1,6 +1,11 @@
 import type { CanvasFile, ChatMessage, Course, DownloadedItem, FileNode, MediaObject, Note, Task, Transcription } from './types'
 
-const BASE = '/api'
+// In Tauri production mode (no Vite proxy), read backend URL from localStorage
+// Set via Settings UI. Default to relative path (works with Vite dev proxy + same-origin deploy)
+const API_HOST = (() => {
+  try { return localStorage.getItem('apiHost') || '' } catch { return '' }
+})()
+const BASE = API_HOST ? `${API_HOST}/api` : '/api'
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(BASE + path)
