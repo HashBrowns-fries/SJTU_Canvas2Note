@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Sparkles, Plus, Pencil, Trash2, Check, Loader2, X } from 'lucide-react'
@@ -25,6 +25,41 @@ export function NotesTab({ course }: Props) {
   const [view, setView] = useState<View>('preview')
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  // Chat panel resizable width
+  const [chatWidth, setChatWidth] = useState(() => Math.min(560, window.innerWidth * 0.35))
+  const dragging = useRef(false)
+  const startX = useRef(0)
+  const startW = useRef(0)
+
+  const onDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    dragging.current = true
+    startX.current = e.clientX
+    startW.current = chatWidth
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [chatWidth])
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current) return
+      const delta = startX.current - e.clientX
+      const newW = Math.max(280, Math.min(900, startW.current + delta))
+      setChatWidth(newW)
+    }
+    const onUp = () => {
+      dragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [])
 
   // Generate note form
   const [showGen, setShowGen] = useState(false)
@@ -270,9 +305,17 @@ export function NotesTab({ course }: Props) {
         )}
       </div>
 
-      {/* Right: chat (hidden on smaller screens) */}
-      <div className="w-[34rem] shrink-0 hidden xl:block border-l border-border">
-        <ChatPanel conversationId={selected ? `${selected.course}_${selected.stem}` : ''} contextNote={content} />
+      {/* Resize handle + Chat */}
+      <div className="hidden xl:flex">
+        {/* Drag handle */}
+        <div
+          className="w-1.5 shrink-0 cursor-col-resize hover:bg-brand/20 active:bg-brand/40 transition-colors border-l border-border"
+          onMouseDown={onDragStart}
+        />
+        {/* Chat panel */}
+        <div className="border-l border-border" style={{ width: chatWidth }}>
+          <ChatPanel conversationId={selected ? `${selected.course}_${selected.stem}` : ''} contextNote={content} />
+        </div>
       </div>
 
       {/* Rename modal */}

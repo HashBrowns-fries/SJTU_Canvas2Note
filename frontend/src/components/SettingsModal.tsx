@@ -331,8 +331,10 @@ export function SettingsModal({ open, onClose }: Props) {
                       />
                     </div>
                   )}
-                  {(qrStatus === 'expired' || qrStatus === 'error') && (
-                    <button onClick={startQrLogin} className="w-full font-mono text-xs px-3 py-2 rounded-lg border border-border text-muted hover:text-brand transition-colors">重新获取二维码</button>
+                  {(qrStatus !== 'done' && qrStatus !== 'pending' && qrStatus !== 'scanned') && (
+                    <button onClick={startQrLogin} className="w-full font-mono text-xs px-3 py-2 rounded-lg border border-border text-muted hover:text-brand transition-colors">
+                      {qrStatus === 'loading' ? '重新获取' : qrStatus === 'expired' ? '二维码已过期，重新获取' : '重新获取二维码'}
+                    </button>
                   )}
                   {qrStatus === 'done' && (
                     <p className="font-mono text-xs text-success text-center">Cookie 已自动保存，jAccount 已就绪</p>
