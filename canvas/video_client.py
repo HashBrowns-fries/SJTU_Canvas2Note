@@ -111,14 +111,39 @@ class SJTUVideoClient:
     # ─────────────────────────────────────────────────────────────────────────────
 
     def _attach_ja_auth_cookie(self) -> None:
-        """把 JAAuthCookie=value 注入到 jaccount 和 my.sjtu 域名"""
-        cookie_str = f"JAAuthCookie={self._ja_auth_cookie}"
-        for url in [AUTH_URL, MY_SJTU]:
-            self.session.cookies.set(
-                "JAAuthCookie", self._ja_auth_cookie,
-                domain=urllib.parse.urlparse(url).netloc,
-                path="/",
-            )
+        """
+        注入认证 Cookie 到 jaccount + my.sjtu 域名。
+
+        兼容两种格式:
+          1. 纯 JAAuthCookie 值（如 \"CA37UEKUwBK5T...\"）
+          2. 完整 cookie 字符串（如 \"key1=val1; key2=val2; JAAuthCookie=...\"）
+        """
+        cookie_str = self._ja_auth_cookie
+
+        # Detect if it's a full cookie string (contains ';' with '=')
+        if ";" in cookie_str and "=" in cookie_str:
+            # Parse all cookies and set each on the session
+            for part in cookie_str.split(";"):
+                part = part.strip()
+                if "=" in part:
+                    name, _, value = part.partition("=")
+                    name = name.strip()
+                    value = value.strip()
+                    if name and value:
+                        for url in [AUTH_URL, MY_SJTU]:
+                            self.session.cookies.set(
+                                name, value,
+                                domain=urllib.parse.urlparse(url).netloc,
+                                path="/",
+                            )
+        else:
+            # Single value: treat as JAAuthCookie directly
+            for url in [AUTH_URL, MY_SJTU]:
+                self.session.cookies.set(
+                    "JAAuthCookie", cookie_str,
+                    domain=urllib.parse.urlparse(url).netloc,
+                    path="/",
+                )
 
     # ─────────────────────────────────────────────────────────────────────────────
     # Step 2: 登录 Canvas（对齐 CanvasHelper login_canvas_website）
