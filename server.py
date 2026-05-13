@@ -859,8 +859,11 @@ def _reset_clients():
     import importlib, config as _conf_mod
     importlib.reload(_conf_mod)
     # Reset ASR engines so they reload with new settings
-    import asr.transcriber as _asr
-    _asr._reload()
+    try:
+        import asr.transcriber as _asr
+        _asr._reload()
+    except ImportError:
+        pass  # torch or other ASR deps not installed — OK
 
 
 @app.post("/api/settings/test_llm")
@@ -910,7 +913,7 @@ def test_asr(body: dict):
 # API — jAccount QR Login
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_qr_sessions: dict[str, dict] = {}  # uuid → QRLoginSession
+_qr_sessions: dict[str, object] = {}  # uuid → QRLoginSession
 
 
 @app.post("/api/auth/qrcode")
@@ -922,12 +925,7 @@ def auth_qrcode_start():
     if not session or not session.uuid:
         raise HTTPException(502, "无法获取 jAccount 登录二维码，请检查网络连接")
 
-    _qr_sessions[session.uuid] = {
-        "uuid": session.uuid,
-        "qr_url": session.qr_url,
-        "cookies": session.cookies,
-        "status": session.status,
-    }
+    _qr_sessions[session.uuid] = session  # store the live object (has WebSocket)
     return {
         "uuid": session.uuid,
         "qr_url": f"/api/auth/qrcode/{session.uuid}/image",
@@ -945,51 +943,37 @@ def auth_qrcode_image(uuid: str):
         raise HTTPException(404, "QR session not found or expired")
 
     try:
-        if not session.get("qr_url"):
-            raise HTTPException(502, "QR code URL not available — WebSocket connection may have failed")
-        # QR URL already includes ts + sig, just need cookies for auth
-        cookies = session.get("cookies", {})
-        r = httpx.get(session["qr_url"], cookies=cookies, timeout=15)
+        if not session.qr_url:
+            raise HTTPException(502, "QR code URL not available")
+        r = httpx.get(session.qr_url, cookies=session.cookies, timeout=15)
         if r.status_code != 200:
             raise HTTPException(502, f"QR image fetch failed (HTTP {r.status_code})")
         from fastapi.responses import Response
         return Response(content=r.content, media_type="image/png")
-    except Exception:
-        raise HTTPException(502, "Failed to fetch QR image")
+    except Exception as e:
+        raise HTTPException(502, f"Failed to fetch QR image: {e}")
 
 
 @app.get("/api/auth/qrcode/{uuid}/status")
 def auth_qrcode_status(uuid: str):
     """Poll QR scan status. Returns status + cookie on success."""
-    from canvas.jaccount import check_qr_status, QRLoginSession, get_jaauth_from_qr
+    from canvas.jaccount import check_qr_status
 
-    stored = _qr_sessions.get(uuid)
-    if not stored:
+    session = _qr_sessions.get(uuid)
+    if not session:
         raise HTTPException(404, "QR session not found. Please start a new one.")
 
-    session = QRLoginSession(
-        uuid=stored["uuid"],
-        qr_url=stored["qr_url"],
-        cookies=stored["cookies"],
-        status=stored.get("status", "pending"),
-        cookie_str=stored.get("cookie_str", ""),
-    )
-
     session = check_qr_status(session)
-    stored["status"] = session.status
-    stored["cookie_str"] = session.cookie_str
 
     result = {"status": session.status}
 
     if session.status == "confirmed":
-        # Try to get JAAuthCookie
-        final_cookie = get_jaauth_from_qr(session)
-        if final_cookie:
-            result["cookie"] = final_cookie
-            # Auto-save to settings if cookie looks valid
+        # Auto-save cookie to settings
+        if session.cookie_str:
             cfg = _cfg()
-            cfg["ja_auth_cookie"] = final_cookie
+            cfg["ja_auth_cookie"] = session.cookie_str
             _save_settings(cfg)
+            result["cookie"] = session.cookie_str
 
     return result
 
@@ -997,10 +981,10 @@ def auth_qrcode_status(uuid: str):
 @app.post("/api/auth/qrcode/{uuid}/save")
 def auth_qrcode_save(uuid: str):
     """Manually save the QR login cookie to settings."""
-    stored = _qr_sessions.get(uuid)
-    if not stored:
+    session = _qr_sessions.get(uuid)
+    if not session:
         raise HTTPException(404, "Session not found")
-    cookie = stored.get("cookie_str", "")
+    cookie = session.cookie_str
     if not cookie:
         raise HTTPException(400, "No cookie available yet")
     cfg = _cfg()
