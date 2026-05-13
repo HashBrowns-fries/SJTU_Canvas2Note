@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Download, Mic, Check, X, Loader2, ChevronLeft, ChevronRight, LayoutPanelLeft, Play } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Download, Mic, Check, X, Loader2, ChevronLeft, ChevronRight, LayoutPanelLeft, Play, Radio, Square } from 'lucide-react'
 import { api } from '../api'
 import { pushToast } from './Toast'
 import { Badge } from './ui/Badge'
@@ -64,6 +64,12 @@ export function VideosTab({
   const [slideIndex, setSlideIndex] = useState(0)
   const [pptDownloading, setPptDownloading] = useState<Set<string>>(new Set())
   const [pptDownloaded, setPptDownloaded] = useState<Set<string>>(new Set())
+
+  // Live QR monitor
+  const [monitoring, setMonitoring] = useState(false)
+  const [monitorUrl, setMonitorUrl] = useState('')
+  const [qrDetected, setQrDetected] = useState<{ data: string; time: number } | null>(null)
+  const monitorRef = useRef<EventSource | null>(null)
 
   // Batch selection
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -269,6 +275,41 @@ export function VideosTab({
     }
   }
 
+  async function startMonitor() {
+    if (!monitorUrl.trim()) return
+    setMonitoring(true)
+    setQrDetected(null)
+    try {
+      await fetch('/api/live/monitor/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stream_url: monitorUrl }),
+      })
+      const es = new EventSource('/api/live/monitor/stream')
+      monitorRef.current = es
+      es.onmessage = (e) => {
+        try {
+          const event = JSON.parse(e.data)
+          if (event.type === 'qr_detected') {
+            setQrDetected({ data: event.data, time: event.timestamp })
+            pushToast({ type: 'info', message: `QR 检测: ${event.data.slice(0, 40)}...` })
+          }
+        } catch {}
+      }
+      es.onerror = () => { /* reconnect handled by browser */ }
+    } catch (e: unknown) {
+      pushToast({ type: 'error', message: `Monitor start failed: ${e instanceof Error ? e.message : String(e)}` })
+      setMonitoring(false)
+    }
+  }
+
+  function stopMonitor() {
+    fetch('/api/live/monitor/stop', { method: 'POST' }).catch(() => {})
+    if (monitorRef.current) { monitorRef.current.close(); monitorRef.current = null }
+    setMonitoring(false)
+    setQrDetected(null)
+  }
+
   const batchStatusMap = Object.fromEntries(batchItems.map(b => [b.video_id, b]))
 
   if (loading) return <div className="p-6"><Skeleton lines={10} /></div>
@@ -299,6 +340,42 @@ export function VideosTab({
                 <Download size={12} /><Mic size={12} /> Batch transcribe
               </Button>
             </>
+          )}
+        </div>
+      </div>
+
+      {/* Live QR Monitor Panel */}
+      <div className="border-b border-border/50 bg-surface2/50">
+        <div className="px-4 sm:px-6 py-2.5 flex items-center gap-3 flex-wrap">
+          <span className="font-mono text-xs text-text-mid flex items-center gap-1.5">
+            <Radio size={12} className={monitoring ? 'text-brand animate-pulse' : 'text-muted'} />
+            直播 QR 监控
+          </span>
+          <input
+            type="text"
+            value={monitorUrl}
+            onChange={e => setMonitorUrl(e.target.value)}
+            placeholder="电脑录屏 FLV 流 URL ..."
+            disabled={monitoring}
+            className="flex-1 min-w-[200px] bg-surface border border-border rounded-lg px-3 py-1.5 font-mono text-xs text-text placeholder:text-faint focus:outline-none focus:border-brand/50 disabled:opacity-50 transition-all"
+          />
+          {!monitoring ? (
+            <Button variant="primary" size="sm" onClick={startMonitor} disabled={!monitorUrl.trim()}>
+              <Radio size={12} /> 开始监控
+            </Button>
+          ) : (
+            <Button variant="danger" size="sm" onClick={stopMonitor}>
+              <Square size={12} /> 停止
+            </Button>
+          )}
+          {qrDetected && (
+            <div className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-warning-bg border border-warning/30 animate-fade-in">
+              <span className="font-mono text-xs text-warning font-medium">检测到二维码:</span>
+              <code className="font-mono text-xs text-text flex-1 truncate">{qrDetected.data}</code>
+              <span className="font-mono text-xs text-faint shrink-0">
+                {new Date(qrDetected.time * 1000).toLocaleTimeString('zh-CN')}
+              </span>
+            </div>
           )}
         </div>
       </div>

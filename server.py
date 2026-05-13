@@ -994,6 +994,78 @@ def auth_qrcode_save(uuid: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# API — Live Stream QR Monitor
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import queue as _queue
+
+_live_monitor: object = None       # LiveQRMonitor instance
+_live_queues: list[_queue.Queue] = []  # list of queues for SSE subscribers
+
+
+class LiveMonitorRequest(BaseModel):
+    stream_url: str
+
+
+@app.post("/api/live/monitor/start")
+def live_monitor_start(body: LiveMonitorRequest):
+    """Start monitoring a live FLV stream for QR codes."""
+    global _live_monitor
+    from live_monitor import LiveQRMonitor
+
+    if _live_monitor and _live_monitor.is_running():
+        _live_monitor.stop()
+
+    def _on_qr(event: dict):
+        for q in _live_queues:
+            try:
+                q.put_nowait(event)
+            except _queue.Full:
+                pass
+
+    _live_monitor = LiveQRMonitor(
+        stream_url=body.stream_url,
+        on_qr_detected=_on_qr,
+        check_interval=2.0,
+    )
+    _live_monitor.start()
+    return {"status": "monitoring", "stream_url": body.stream_url}
+
+
+@app.post("/api/live/monitor/stop")
+def live_monitor_stop():
+    """Stop live monitoring."""
+    global _live_monitor
+    if _live_monitor:
+        _live_monitor.stop()
+        _live_monitor = None
+    return {"status": "stopped"}
+
+
+@app.get("/api/live/monitor/stream")
+async def live_monitor_stream():
+    """SSE stream of QR code detection events."""
+    q: _queue.Queue = _queue.Queue()
+    _live_queues.append(q)
+
+    async def generate():
+        try:
+            while True:
+                if await asyncio.get_event_loop().run_in_executor(None, lambda: True):
+                    try:
+                        event = q.get_nowait()
+                        yield f"data: {json.dumps(event)}\n\n"
+                    except _queue.Empty:
+                        await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            _live_queues.remove(q)
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # API — Tasks
 # ═══════════════════════════════════════════════════════════════════════════════
 
