@@ -313,6 +313,25 @@ export function VideosTab({
           if (event.type === 'qr_detected') {
             setQrDetected({ data: event.data, time: event.timestamp })
             pushToast({ type: 'success', message: `检测到二维码，请扫描!` })
+            // Browser notification
+            if (Notification.permission === 'granted') {
+              new Notification('Canvas2Note 直播 QR 监控', {
+                body: `检测到二维码: ${event.data.slice(0, 80)}`,
+                icon: '/favicon.ico',
+              })
+            } else if (Notification.permission === 'default') {
+              Notification.requestPermission()
+            }
+            // Audio alert (short beep via AudioContext)
+            try {
+              const ctx = new AudioContext()
+              const osc = ctx.createOscillator()
+              const gain = ctx.createGain()
+              osc.connect(gain); gain.connect(ctx.destination)
+              osc.frequency.value = 800
+              gain.gain.value = 0.1
+              osc.start(); osc.stop(ctx.currentTime + 0.15)
+            } catch {}
           }
         } catch {}
       }

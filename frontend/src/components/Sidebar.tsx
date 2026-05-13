@@ -59,7 +59,7 @@ export function Sidebar({ selected, onSelect, onClose, batchTaskId, batchItems, 
             <X size={14} strokeWidth={1.5} />
           </button>
         </div>
-        <p className="text-muted font-mono text-xs tracking-wide">research terminal v0.2</p>
+        <p className="text-muted font-mono text-xs tracking-wide">v1.0.0 · 录屏 · 转录 · 笔记</p>
       </div>
 
       {/* Search */}
