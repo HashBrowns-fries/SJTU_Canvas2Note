@@ -11,7 +11,6 @@ from pathlib import Path
 
 from config import NOTES_DIR
 from canvas.client import CanvasClient
-from asr.transcriber import transcribe_video
 from parser.doc_parser import parse_document
 from notes.generator import generate_notes
 
@@ -39,6 +38,7 @@ def process_course(client: CanvasClient, course: dict) -> None:
 
     # 每个视频转录，合并为一份讲义（按文件名顺序）
     transcripts: dict[str, str] = {}
+    from asr.transcriber import transcribe_video
     for vp in sorted(video_paths):
         transcripts[vp.stem] = transcribe_video(vp)
 
