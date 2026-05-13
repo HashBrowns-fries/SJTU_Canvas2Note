@@ -39,6 +39,11 @@ Canvas2note/
 ├── cli.py               # Agent CLI（所有操作的 JSON 接口）
 ├── server.py            # FastAPI 后端（所有 API + SSE 流式）
 ├── frontend/            # React + Vite + Tailwind CSS 前端
+│   ├── src/
+│   │   ├── components/ui/       # 共享 UI 组件
+│   │   ├── hooks/               # useTheme / useKeyboard
+│   │   └── ...
+│   └── src-tauri/               # Tauri v2 桌面应用配置
 ├── config.py            # 配置管理
 └── data/                # 下载文件、转录、笔记、聊天记录
     ├── downloads/
@@ -192,12 +197,32 @@ Canvas 课件/PPT下载                            录播下载              直
 ## 技术栈
 
 - **后端**：FastAPI + Uvicorn（SSE 流式响应）
-- **前端**：React + Vite + Tailwind CSS
+- **前端**：React 18 + Vite 5 + Tailwind CSS 3 + TypeScript
+  - "Paper & Ink" 设计 — 朱砂红主色调，暖纸墨色体系，支持亮/暗双模式
+  - Lucide React 图标库，响应式布局（桌面 / 平板 / 手机）
+  - 共享 UI 组件：Button、Input、Modal、Badge、Skeleton、EmptyState、Progress
+- **桌面应用**：Tauri v2（Windows / macOS / Linux 原生窗口，部分功能需 Python 后端）
 - **ASR**：交大 AI 转录站 / faster-whisper / Qwen3-ASR-1.7B / FunASR SenseVoice / OpenAI 兼容 API
 - **VLM**：Qwen3-VL-8B vLLM（PPT 幻灯片分析）
 - **LLM**：OpenAI 兼容 API（DeepSeek / Ollama / SiliconFlow 等）
 - **文档解析**：`pypdf` / `python-pptx` / `python-docx`
 - **依赖管理**：`uv`（`uv sync` 同步，`uv.lock` 已提交保证版本一致）
+
+## Tauri 桌面应用
+
+```bash
+cd frontend
+
+# 开发模式（Python 后端需单独启动）
+uv run python -m uvicorn server:app --port 8000
+npm run tauri dev
+
+# 生产构建（生成 .msi / .dmg / .AppImage）
+npm run tauri build
+```
+
+首次使用在 Settings → Server 页设置后端地址（如 `http://localhost:8000`）。
+Windows 需 Node.js 18+、Rust、Python 3.10+、WebView2（Win10 已内置）。
 
 ## License
 
