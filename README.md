@@ -17,6 +17,7 @@
 - **AI 笔记生成** — 将课件文字、PPT 幻灯片 VLM 描述、录屏截图与讲义转录融合，生成结构清晰的 Markdown 笔记；笔记按转录文件名命名，不覆盖历史文件；PPT 幻灯片通过 Qwen3-VL-8B 分析，VLM 进度实时显示在生成面板。
 - **LLM 对话** — 在笔记页面右侧与 AI 助手对话，支持 Markdown 渲染，历史记录按笔记自动保存；侧边栏展示所有对话历史，支持按笔记名称过滤
 - **批量工作流** — 一键完成 下载 → 自动转录 → 删除视频，进度在侧边栏实时跟踪（转录状态透传自 ASR 引擎）
+- **jAccount 扫码登录** — Settings → Canvas 页一键扫码登录 jAccount，自动获取 JAAuthCookie，无需手动从浏览器复制 Cookie
 - **CLI 接口** — 完整 JSON CLI，Agent 可调用所有功能（课程/文件/视频/转写/截图分析/笔记/对话/设置）
 - **Web UI** — 浏览器内管理课程、视频、转录、笔记，支持流式输出和设置配置
 
@@ -26,7 +27,8 @@
 Canvas2note/
 ├── canvas/              # Canvas API 客户端
 │   ├── client.py        # 课程/文件/视频列表 API
-│   └── video_client.py  # 交大录屏下载 (JAAuth + LTI)
+│   ├── video_client.py  # 交大录屏下载 (JAAuth + LTI)
+│   └── jaccount.py      # jAccount QR 扫码登录
 ├── asr/                 # 语音转写
 │   ├── transcriber.py   # translate + faster-whisper + Qwen3-ASR + ASR API
 │   └── frame_extractor.py
@@ -45,6 +47,7 @@ Canvas2note/
 │   │   ├── hooks/               # useTheme / useKeyboard
 │   │   └── ...
 │   └── src-tauri/               # Tauri v2 桌面应用配置
+├── .github/workflows/   # GitHub Actions CI / Tauri Build
 ├── config.py            # 配置管理
 └── data/                # 下载文件、转录、笔记、聊天记录
     ├── downloads/
@@ -77,13 +80,13 @@ uv sync --extra funasr    # FunASR SenseVoice + torch
 
 | 字段 | 说明 |
 |---|---|
-| Canvas Base URL | `https://oc.sjtu.edu.cn` |
 | Canvas Token | oc.sjtu.edu.cn → Account → Settings → New Access Token |
+| jAccount 扫码 | Canvas 页点击按钮，手机扫码自动登录（无需手动复制 Cookie）|
 | LLM Base URL | 如 `https://api.deepseek.com/v1` |
 | LLM API Key | 你的 API 密钥 |
 | LLM Model | 如 `deepseek-chat` |
 
-配置写入 `settings.json`（不入 git）。录屏下载、转录站等高级选项见 Settings 内提示。
+配置写入 `settings.json`（不入 git）。录屏下载、转录站等高级选项见 Settings 各 Tab 内提示。
 
 ## 🧑 用户使用
 
