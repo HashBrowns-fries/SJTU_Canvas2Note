@@ -1,86 +1,71 @@
-# Canvas2Note：把 SJTU 课堂录屏变成可复习的笔记
+# 开源了一个工具：SJTU Canvas 录屏 → 转录 → AI 笔记，全自动
 
-> 下载 → 转录 → AI 整理，一个工具搞定。**两种使用方式：UI 给你用，CLI 给 Agent 帮你用。**
+标题够长了，直接说正事。
 
----
+## 解决什么问题
 
-## 为什么写这个
+大家都知道交大有 Canvas 课程系统对吧？课件在上面、录屏在另一个视频站、转录还得去 translate.sjtu.edu.cn。每学期十几门课，想系统整理笔记真的累。
 
-每学期几十节录屏，想复习却找不到重点。课件在 Canvas，录屏在视频站，转录在另一个系统。于是有了 Canvas2Note —— 把所有东西串起来。
+所以写了个工具把整个流程串起来：**下载课件/录屏 → 语音转写 → LLM 生成结构化笔记**。
 
-```
-Canvas 课件/PDF → 下载到本地
-课堂录屏 .mp4  → ASR 语音转写
-PPT 幻灯片     → VLM 图片分析
-        ↓
-  LLM 融合整理 → Markdown 笔记 → AI 对话
-```
+GitHub 开源：`https://github.com/HashBrowns-fries/SJTU_Canvas2Note`
 
----
+## 怎么用
 
-## 🧑 UI：浏览器或桌面都能用
+两种方式：
 
-### Web 界面
+**普通人 → Web UI**：浏览器打开，点点鼠标，下载、转录、生成笔记全搞定。也支持打包成 Windows/macOS 原生桌面应用（Tauri）。
 
-```
-uv run python -m uvicorn server:app --port 8000
-打开 http://localhost:8000
-```
-
-- **jAccount 扫码登录** — 手机扫一下就行，不用 F12 翻 Cookie
-- **Paper & Ink 设计** — 朱砂红主色调，暖纸墨色体系，支持暗色模式
-- **响应式布局** — 桌面/平板/手机
-- **KaTeX 公式渲染** — 生物化学课里的 $CO_2$、$\xrightarrow{[H],ATP}$ 都能正确显示
-
-### Tauri 桌面应用
-
-```
-cd frontend && npm run tauri build
-→ 生成 .msi / .dmg / .AppImage
-```
-
-脱离浏览器，原生窗口，系统通知。
-
----
-
-## 🤖 CLI：让 Agent 帮你做
-
-所有命令返回 JSON，Claude Code / Cursor / 任何 Agent 都能直接调用。
+**开发者 / Agent → CLI**：所有命令返回 JSON。
 
 ```bash
-# Agent 帮你查课
+# 查课
 uv run python cli.py list-courses
-# → [{"id":88220,"name":"现代汉语（2）",...}]
+# → [{"id":88220,"name":"现代汉语（2）","course_code":"CHN202"}]
 
-# Agent 帮你转录
-uv run python cli.py transcribe \
-  --video data/downloads/现代汉语（2）/第1讲.mp4 \
-  --course "现代汉语（2）"
+# 转录
+uv run python cli.py transcribe --video 第1讲.mp4 --course "现代汉语（2）"
 
-# Agent 帮你生成笔记
+# 一键 pipeline：下载全部录屏 → 转录 → 生成笔记
 uv run python cli.py pipeline --course-id 88220
-# 一条命令：下载+转录+笔记 全自动
 ```
 
-你在 Claude Code 里说一句"帮我整理这学期现代汉语的笔记"，Agent 就调 CLI 去做了。
+你在 Claude Code / Cursor 里说"帮我整理这学期 XX 课的笔记"，Agent 直接调 CLI 全自动做完了。这就是 **CLI 给 Agent 用**的意思。
 
----
+## 几个好用的功能
 
-## 核心功能
+1. **jAccount 扫码登录**：手机扫一下就好，不用去 F12 翻 Cookie 了
+2. **五种 ASR 引擎可选**：交大转录站（免 GPU 推荐）、faster-whisper、Qwen3-ASR、FunASR、OpenAI API
+3. **直播 QR 码监控**：监控电脑录屏流，PPT 上出现二维码自动弹窗提醒（beta）
+4. **批量工作流**：选一堆录屏 → 一键下载+转录+删视频，进度条实时刷新
+5. **KaTeX 公式渲染**：生化课笔记里的 $CO_2 + C_5 \rightarrow 2C_3$ 能正确显示
+6. **暗色模式**：深夜学习必备
+7. **笔记 + 对话**：右侧 ChatPanel 基于当前笔记内容跟 LLM 聊天，面板宽度可拖拽
 
-- 五种 ASR 引擎：交大转录站（免 GPU）、faster-whisper、Qwen3-ASR、FunASR、OpenAI API
-- 直播 QR 码监控：检测到 PPT 上的二维码自动提醒
-- 批量工作流：一键 下载→转录→删视频
-- 笔记对话：右侧 ChatPanel 基于当前笔记与 LLM 对话，面板宽度可拖动
-
----
-
-## 快速开始
+## 安装
 
 ```bash
 git clone https://github.com/HashBrowns-fries/SJTU_Canvas2Note.git
-cd SJTU_Canvas2Note && uv sync
+cd SJTU_Canvas2Note
+uv sync  # 基础安装 78 个包，无需 GPU
+
 uv run python -m uvicorn server:app --port 8000
+# 打开浏览器 → http://localhost:8000
 ```
 
-MIT 开源。欢迎 Star ⭐ & PR。
+需要本地 ASR 再加：
+```bash
+uv sync --extra asr      # faster-whisper
+uv sync --extra funasr   # FunASR SenseVoice
+```
+
+## 技术栈
+
+Python FastAPI + React 18 + Tailwind CSS + Tauri v2
+ASR/LLM/VLM 都接的是 OpenAI 兼容 API 或交大自己的服务
+
+## 最后
+
+MIT 开源，欢迎 Star ⭐ 和 PR。有问题直接提 Issue。
+
+大四快毕业了，就当送给学弟学妹的礼物。
